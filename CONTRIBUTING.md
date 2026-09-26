@@ -22,6 +22,10 @@ Thank you for your interest in contributing to SupportMe. This project is built 
 
 ### Backend
 
+See [`backend/docs/CONFIGURATION.md`](backend/docs/CONFIGURATION.md) for the
+backend environment variables grouped by service, including defaults and
+local, staging, and production guidance.
+
 ```bash
 cd backend
 npm install
