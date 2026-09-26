@@ -10,13 +10,23 @@ const router = Router();
 
 router.get(
   "/",
+  authMiddleware as any,
   validate({ query: listWithdrawalsQuerySchema }),
-  asyncHandler(async (req, res) => {
+  asyncHandler(async (req: AuthRequest, res) => {
     const { creatorUsername } = req.query as { creatorUsername?: string };
+
+    if (!req.user) {
+      throw new UnauthorizedError("User not authenticated");
+    }
 
     const withdrawals = await prisma.withdrawal.findMany({
       orderBy: { createdAt: "desc" },
-      ...(creatorUsername ? { where: { creator: { username: creatorUsername } } } : {}),
+      where: {
+        creator: {
+          userId: req.user.id,
+          ...(creatorUsername ? { username: creatorUsername } : {}),
+        },
+      },
     });
 
     return res.json(withdrawals);
