@@ -23,27 +23,42 @@ const mockedPrisma = prisma as unknown as {
 };
 
 describe("GET /api/withdrawals", () => {
-  it("returns all withdrawals ordered by creation date", async () => {
+  const token = generateToken(1, "GUSERADDRESS");
+
+  it("rejects anonymous requests", async () => {
+    const res = await request(app).get("/api/withdrawals");
+
+    expect(res.status).toBe(401);
+    expect(mockedPrisma.withdrawal.findMany).not.toHaveBeenCalled();
+  });
+
+  it("returns only the authenticated user's withdrawals", async () => {
     const withdrawals = [{ id: 1, creatorId: 1, amountIn: 5, currency: "USDC" }];
     mockedPrisma.withdrawal.findMany.mockResolvedValue(withdrawals);
 
-    const res = await request(app).get("/api/withdrawals");
+    const res = await request(app)
+      .get("/api/withdrawals")
+      .set("Authorization", `Bearer ${token}`);
 
     expect(res.status).toBe(200);
     expect(res.body).toEqual(withdrawals);
     expect(mockedPrisma.withdrawal.findMany).toHaveBeenCalledWith({
       orderBy: { createdAt: "desc" },
+      where: { creator: { userId: 1 } },
     });
   });
 
   it("filters by creatorUsername when provided as a query param", async () => {
     mockedPrisma.withdrawal.findMany.mockResolvedValue([]);
 
-    await request(app).get("/api/withdrawals").query({ creatorUsername: "bob" });
+    await request(app)
+      .get("/api/withdrawals")
+      .set("Authorization", `Bearer ${token}`)
+      .query({ creatorUsername: "bob" });
 
     expect(mockedPrisma.withdrawal.findMany).toHaveBeenCalledWith({
       orderBy: { createdAt: "desc" },
-      where: { creator: { username: "bob" } },
+      where: { creator: { userId: 1, username: "bob" } },
     });
   });
 });

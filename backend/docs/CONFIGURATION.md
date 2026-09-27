@@ -1,0 +1,99 @@
+# Backend Configuration
+
+This reference covers every environment setting read by `backend/src` and the
+settings currently shown in [`../.env.example`](../.env.example). Set values in
+the environment used by the backend process; restarting the process is required
+after a change.
+
+## Core runtime and database
+
+| Variable | Required? | Default / behavior |
+| --- | --- | --- |
+| `DATABASE_URL` | Required for a working backend; production startup validates it. | None in code. `.env.example` shows a local PostgreSQL URL; use the URL for the environment's database. |
+| `JWT_SECRET` | Required outside tests. | None. The server refuses to start without it; generate a private value, for example with `openssl rand -hex 32`. Tests generate an ephemeral process-local secret if unset. |
+| `NODE_ENV` | Optional. Set explicitly in deployed environments. | Unset is treated as non-production by environment checks; `production` enables strict startup validation, and `test` enables test-only behavior. |
+| `PORT` | Optional. | `4000`. |
+
+## Browser access and proxy
+
+| Variable | Required? | Default / behavior |
+| --- | --- | --- |
+| `CORS_ALLOWED_ORIGINS` | Optional; set for deployed browser frontends. | Empty. Comma-separated exact origins. Outside production, `http://localhost:3000` and `http://127.0.0.1:3000` are added automatically. Production allows no browser origins unless configured. |
+| `TRUST_PROXY` | Optional; set when the API is behind a trusted reverse proxy. | Unset leaves Express's default. Set to the number of proxy hops (commonly `1` on Railway) so IP-based limits see the client address. |
+
+## Soroban event listener and RPC
+
+| Variable | Required? | Default / behavior |
+| --- | --- | --- |
+| `NEXT_PUBLIC_DONATION_CONTRACT_ID` | Required for a normal backend startup and required by production configuration validation. | None. The event listener skips polling without it, and the subscription executor cannot start without it. |
+| `NEXT_PUBLIC_CREATOR_REGISTRY_CONTRACT_ID` | Optional. | Unset; the listener watches the donation contract only. Set the registry address to include it in listener monitoring. |
+| `SOROBAN_RPC_URLS` | Optional; preferred for the RPC client pool. | If unset, endpoint selection falls through to `SOROBAN_RPC_ENDPOINTS`, then `SOROBAN_RPC_URL`, then the public testnet endpoint. Accepts a comma-separated priority list. |
+| `SOROBAN_RPC_ENDPOINTS` | Optional compatibility alias. | Used only when `SOROBAN_RPC_URLS` is unset; comma-separated priority list. |
+| `SOROBAN_RPC_URL` | Optional legacy/single endpoint. | `https://soroban-testnet.stellar.org`. It is the final fallback for the shared RPC client and is also read directly by the event listener. |
+| `SOROBAN_RPC_TIMEOUT_MS` | Optional. | `10000` ms per endpoint when unset, invalid, or non-positive. |
+| `SOROBAN_EVENTS_POLL_INTERVAL_MS` | Optional. | `5000` ms. |
+| `SOROBAN_EVENTS_LOOKBACK_LEDGERS` | Optional. | `100` ledgers on the listener's initial scan. |
+| `SOROBAN_USDC_ISSUER` | Not currently consumed by backend code. | No effect. This legacy example entry is retained here to make clear that setting it does not configure token classification. |
+| `SOROBAN_USDC_TOKEN_ID` | Not currently consumed by backend code. | No effect. This legacy example entry is retained here to make clear that setting it does not configure token classification. |
+
+The shared RPC pool supports failover for callers using `sorobanRpc`. The event
+listener currently uses `SOROBAN_RPC_URL` directly, so configure that variable
+as well if the listener needs a non-default endpoint.
+
+## Recurring donations and scheduled work
+
+| Variable | Required? | Default / behavior |
+| --- | --- | --- |
+| `EXECUTOR_SECRET_KEY` | Required for normal backend startup because the subscription executor is started with the server. | None. This operational Stellar key must be registered as the donation contract executor and funded for transaction fees. Do not reuse a user wallet or commit the secret. |
+| `SUBSCRIPTION_EXECUTOR_POLL_INTERVAL_MS` | Optional. | `60000` ms. |
+| `SUBSCRIPTION_EXECUTOR_EXPECTED_INTERVAL_MS` | Optional. | Three times the polling interval, or `180000` ms with the default poll interval. Used by executor health reporting. |
+| `GOAL_RESET_CHECK_INTERVAL_MS` | Optional. | `3600000` ms (one hour). |
+
+## Admin access
+
+| Variable | Required? | Default / behavior |
+| --- | --- | --- |
+| `ADMIN_WALLETS` | Optional; required to grant admin access. | Empty allowlist. Comma-separated Stellar wallet addresses. |
+
+## Sign-in providers
+
+| Variable | Required? | Default / behavior |
+| --- | --- | --- |
+| `TWITTER_CLIENT_ID` | Optional. | Unset. Twitter/X OAuth is unavailable unless all three Twitter variables are configured. |
+| `TWITTER_CLIENT_SECRET` | Optional. | Unset. |
+| `TWITTER_REDIRECT_URI` | Optional. | Unset; set to the exact callback URL registered with the provider. |
+
+## Email and application links
+
+| Variable | Required? | Default / behavior |
+| --- | --- | --- |
+| `RESEND_API_KEY` | Optional. | Unset; outbound messages are logged instead of sent. |
+| `EMAIL_FROM` | Optional. | `SupportMe <notifications@supportme.app>`. Use a sender verified with Resend in deployed environments. |
+| `APP_URL` | Optional locally; set to the canonical public frontend URL in staging and production. | Context-dependent: some email/SEO paths fall back to `https://supportme.app`, while magic-link and preview paths fall back to `http://localhost:3000`. Set it explicitly outside local development so generated links point to the right environment. |
+| `RESEND_WEBHOOK_SECRET` | Optional for the app; required to accept Resend webhook requests. | Unset; webhook requests are rejected when no signing secret is configured. |
+| `NEXT_PUBLIC_STELLAR_NETWORK` | Optional. | `TESTNET`; used to select the network label/link in email templates. |
+
+## Observability
+
+| Variable | Required? | Default / behavior |
+| --- | --- | --- |
+| `SENTRY_DSN` | Optional. | Unset disables backend Sentry initialization. |
+
+## Environment checklist
+
+- **Local development:** set `DATABASE_URL`, `JWT_SECRET`,
+  `NEXT_PUBLIC_DONATION_CONTRACT_ID`, and `EXECUTOR_SECRET_KEY` for the normal
+  server startup path. The example database URL and public testnet RPC are for
+  local/testnet use only.
+- **Staging:** use staging database and secret values, set the exact staging
+  frontend origin in `CORS_ALLOWED_ORIGINS`, set `APP_URL`, and point the
+  contract IDs and RPC endpoint pool at the intended Stellar network.
+- **Production:** set all four core startup values above, use a unique strong
+  `JWT_SECRET`, configure `CORS_ALLOWED_ORIGINS`, `APP_URL`, and `TRUST_PROXY`
+  for the deployed topology, and provide verified email/Sentry settings if
+  those services are enabled. Store secrets in the hosting provider's secret
+  environment, not in the repository.
+
+The root [README](../../README.md) contains the contract address table and
+production promotion context. See also the
+[contract deploy and promotion workflow](../../docs/contract-deploy-workflow.md).

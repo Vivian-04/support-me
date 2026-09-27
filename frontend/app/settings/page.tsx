@@ -5,7 +5,7 @@ import Image from 'next/image';
 import Link from 'next/link';
 import { notify } from '@/lib/notify';
 import { HugeiconsIcon } from '@hugeicons/react';
-import { ImageUpload01Icon } from '@hugeicons/core-free-icons';
+import { Copy01Icon, ImageUpload01Icon } from '@hugeicons/core-free-icons';
 import { useAuth } from '@/context/AuthContext';
 import { useCreator } from '@/context/CreatorContext';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
@@ -192,6 +192,16 @@ export default function SettingsPage() {
       notify.error('Upload failed', err);
     } finally {
       setUploading(false);
+    }
+  };
+
+  const handleCopyWalletAddress = async () => {
+    if (!user?.walletAddress) return;
+    try {
+      await navigator.clipboard.writeText(user.walletAddress);
+      notify.success('Wallet address copied.');
+    } catch (err) {
+      notify.error('Could not copy wallet address', err);
     }
   };
 
@@ -412,6 +422,26 @@ export default function SettingsPage() {
             <section className="space-y-4 border-t-2 border-ink pt-6">
               <h2 className="text-lg font-extrabold text-ink">Payments</h2>
               <p className="text-sm text-muted font-medium">Choose which assets supporters can tip you in.</p>
+
+              {user?.walletAddress && (
+                <div>
+                  <span className="block text-sm font-bold text-ink mb-2">Connected Stellar wallet</span>
+                  <div className="flex items-center gap-2">
+                    <p className="min-w-0 flex-1 break-all rounded border-2 border-ink/20 bg-background px-3 py-2 font-mono text-sm text-ink">
+                      {user.walletAddress}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={handleCopyWalletAddress}
+                      aria-label="Copy wallet address"
+                      title="Copy wallet address"
+                      className="btn-brutal btn-brutal-white flex h-11 w-11 shrink-0 items-center justify-center p-0"
+                    >
+                      <HugeiconsIcon icon={Copy01Icon} size={18} strokeWidth={2} />
+                    </button>
+                  </div>
+                </div>
+              )}
 
               <label className="flex items-center justify-between gap-4 cursor-pointer min-h-[44px] py-1">
                 <span className="font-bold text-ink">Accept XLM</span>

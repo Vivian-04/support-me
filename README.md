@@ -46,6 +46,8 @@ flowchart LR
 - **Cash-outs:** the creator withdraws from the frontend through a SEP-24 anchor (SEP-10 sign-in, hosted KYC/bank form, on-chain transfer, status polling). See [`anchor/README.md`](anchor/README.md) to run a local anchor.
 
 For the full picture see [`docs/architecture.md`](docs/architecture.md).
+Backend environment variables, defaults, and service-specific requirements are
+documented in [`backend/docs/CONFIGURATION.md`](backend/docs/CONFIGURATION.md).
 
 ## Smart Contracts (Stellar Testnet)
 
@@ -69,6 +71,9 @@ talk to each other exclusively through cross-contract calls
 | `creator-registry` (v1) | [`CCJL2GIWNNWECKGSEY2EXEGKBMN2LYJ3HVNJNZEO2AUXC4LRR7THG2U6`](https://stellar.expert/explorer/testnet/contract/CCJL2GIWNNWECKGSEY2EXEGKBMN2LYJ3HVNJNZEO2AUXC4LRR7THG2U6) | [`contracts/creator-registry/src/lib.rs`](contracts/creator-registry/src/lib.rs) |
 | `donation` (v2, adds recurring donations) | [`CAO2UABEB4A3EYFTWCMOSTFAUZ5FBSFRESQGWQHOLASZ3RHDCQHQG2LP`](https://stellar.expert/explorer/testnet/contract/CAO2UABEB4A3EYFTWCMOSTFAUZ5FBSFRESQGWQHOLASZ3RHDCQHQG2LP) | [`contracts/donation/src/lib.rs`](contracts/donation/src/lib.rs) |
 | `creator-registry` (v2) | [`CB6PH7KYI3UHAUNYIJVCV7CT6BOBROLSR4LSZB3WSGFOYOW6JFAF5NDU`](https://stellar.expert/explorer/testnet/contract/CB6PH7KYI3UHAUNYIJVCV7CT6BOBROLSR4LSZB3WSGFOYOW6JFAF5NDU) | [`contracts/creator-registry/src/lib.rs`](contracts/creator-registry/src/lib.rs) |
+
+For the build, testnet deployment, verification, and live-demo promotion
+checklist, see [`docs/contract-deploy-workflow.md`](docs/contract-deploy-workflow.md).
 
 - **Network**: Stellar Testnet, RPC `https://soroban-testnet.stellar.org`
 - **Example transactions (v1)**:

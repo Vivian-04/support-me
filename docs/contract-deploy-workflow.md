@@ -1,0 +1,161 @@
+# Soroban Contract Deploy and Promotion Workflow
+
+This runbook covers a fresh deployment of `contracts/donation` and
+`contracts/creator-registry` to Stellar Testnet, verification, and promotion of
+the live demo. SupportMe uses new addresses for contract upgrades; an existing
+contract is not replaced in place. Read
+[`contract-upgrade-migration.md`](contract-upgrade-migration.md) before a
+deployment that changes contracts holding live state.
+
+## Before you deploy
+
+- Review the contract changes and run the Rust checks below.
+- Install Rust 1.84 or newer, the `wasm32v1-none` target, and the current Stellar
+  CLI (`stellar`). Keep the CLI version recorded with the release notes.
+- Use a funded Testnet deployer account. For production promotion, use the
+  approved admin/multisig process; do not use a developer's personal wallet.
+- Decide the admin addresses, threshold, timelock, and subscription executor
+  before initializing either contract. The executor key must be funded for
+  fees and its public key must be set on the donation contract.
+- Keep secret keys in the Stellar CLI's local key store or the hosting
+  provider's secret store. Do not put secrets in shell history, this document,
+  or committed environment files.
+
+## Build and test
+
+From the repository root:
+
+```bash
+rustup target add wasm32v1-none
+cargo fmt --all -- --check
+cargo test --workspace
+cargo build --manifest-path contracts/creator-registry/Cargo.toml \
+  --target wasm32v1-none --release
+cargo build --manifest-path contracts/donation/Cargo.toml \
+  --target wasm32v1-none --release
+```
+
+Confirm both deployable files exist before proceeding:
+
+```bash
+test -s target/wasm32v1-none/release/creator_registry.wasm
+test -s target/wasm32v1-none/release/donation.wasm
+```
+
+The contract manifests build both a Wasm `cdylib` and an `rlib`; the latter is
+used by the Rust workspace tests. Do not deploy a stale artifact from a prior
+build.
+
+## Deploy to Testnet
+
+Deploy both artifacts first so each initializer can be given the other
+contract's new address. Use the Stellar CLI account alias configured for your
+deployer in place of `<DEPLOYER_KEY>`:
+
+```bash
+stellar contract deploy \
+  --wasm target/wasm32v1-none/release/creator_registry.wasm \
+  --source-account <DEPLOYER_KEY> --network testnet
+
+stellar contract deploy \
+  --wasm target/wasm32v1-none/release/donation.wasm \
+  --source-account <DEPLOYER_KEY> --network testnet
+```
+
+Record both returned contract IDs and deployment transaction hashes. For a
+single-admin test deployment, initialize the donation contract with the
+registry ID, then initialize the registry with the donation ID:
+
+```bash
+stellar contract invoke --id <DONATION_ID> \
+  --source-account <ADMIN_KEY> --network testnet -- \
+  initialize --admin <ADMIN_ADDRESS> --registry <REGISTRY_ID>
+
+stellar contract invoke --id <REGISTRY_ID> \
+  --source-account <ADMIN_KEY> --network testnet -- \
+  initialize --admin <ADMIN_ADDRESS> --donation_contract <DONATION_ID>
+```
+
+For a multi-admin deployment, call `initialize_multisig` on each contract
+instead, supplying the agreed admin list, threshold, timelock delay, and the
+other contract's address. All listed admins must authorize initialization.
+Follow [`admin-multisig-timelock.md`](admin-multisig-timelock.md) for
+multi-signature administration. With a threshold greater than one, configure
+the executor through the `SetExecutor` proposal flow; the direct `set_executor`
+call is only available for a 1-of-1 contract.
+
+## Verify the deployment
+
+1. Confirm the IDs and transaction hashes are for Testnet and match the CLI
+   output. Inspect each contract interface through the CLI:
+
+   ```bash
+   stellar contract info interface --id <DONATION_ID> --network testnet
+   stellar contract info interface --id <REGISTRY_ID> --network testnet
+   ```
+
+2. Open each contract on [stellar.expert Testnet](https://stellar.expert/explorer/testnet)
+   using `/contract/<CONTRACT_ID>`. Confirm the address, deployment transaction,
+   and contract/Wasm details are present. Compare the displayed Wasm hash with
+   the artifact built for this release when the explorer exposes that value.
+   Explorer visibility verifies the on-chain deployment; it is not a substitute
+   for an independent source-code audit.
+3. Confirm both initializers succeeded and the donation contract references the
+   intended registry. For the single-admin test setup, configure the executor
+   and verify it before using recurring donations:
+
+   ```bash
+   stellar contract invoke --id <DONATION_ID> \
+     --source-account <ADMIN_KEY> --network testnet -- \
+     set_executor --executor <EXECUTOR_ADDRESS>
+   ```
+
+4. Exercise a test donation and, if this release changes recurring donations,
+   a subscription through a non-production frontend. Check the transaction on
+   stellar.expert and confirm the backend event listener indexes it.
+
+## Update repository addresses
+
+After verification, update these records in the same release change:
+
+- Add the new version and both explorer-linked IDs to the **Smart Contracts**
+  table in the root `README.md`. Keep prior versions and their addresses for
+  history; label the new entries with the release/version and note any interface
+  or state-migration caveats.
+- Replace the Testnet sample values for
+  `NEXT_PUBLIC_DONATION_CONTRACT_ID` and
+  `NEXT_PUBLIC_CREATOR_REGISTRY_CONTRACT_ID` in `backend/.env.example` with the
+  newly deployed IDs. Never add a real private key to the example file.
+- Update the corresponding values in local `frontend/.env.local` and
+  `backend/.env` files as needed; these files are not deployment configuration
+  and must remain untracked.
+- Update any contract address examples or deployment/migration notes that claim
+  a specific version is current.
+
+## Promote the live demo
+
+Keep production promotion deliberate and schedule it after the Testnet checks
+and approvals pass. Apply the same new pair of contract IDs together:
+
+- **Vercel**: update `NEXT_PUBLIC_DONATION_CONTRACT_ID` and
+  `NEXT_PUBLIC_CREATOR_REGISTRY_CONTRACT_ID` for the live project's Production
+  environment. Confirm Preview/Staging values separately rather than copying
+  production IDs into every environment by default. Redeploy the frontend so
+  the public client is built with the new IDs.
+- **Railway**: update `NEXT_PUBLIC_DONATION_CONTRACT_ID` and
+  `NEXT_PUBLIC_CREATOR_REGISTRY_CONTRACT_ID` on the backend service. Set or
+  retain `EXECUTOR_SECRET_KEY` only if recurring donations are enabled; its
+  public key must match the executor registered on the new donation contract.
+  Confirm the Soroban RPC settings target the same network, then restart or
+  redeploy the service.
+- **Smoke test**: check the frontend deployment, backend `/health` and
+  `/health/executor`, make a small test donation, and verify its event appears
+  in the dashboard. If recurring donations are enabled, confirm executor health
+  and a controlled charge before announcing the release.
+- **Rollback readiness**: retain the previous IDs and deployment details. If
+  checks fail, restore both old IDs in Vercel and Railway and redeploy/restart
+  both services. New contracts have independent state; switching addresses does
+  not migrate creator profiles, donation records, or active subscriptions.
+
+The backend's full environment-variable reference is
+[`backend/docs/CONFIGURATION.md`](../backend/docs/CONFIGURATION.md).

@@ -3,9 +3,14 @@ import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import SettingsPage from '@/app/settings/page';
 import { useAuth } from '@/context/AuthContext';
+import { useCreator } from '@/context/CreatorContext';
 
 vi.mock('@/context/AuthContext', () => ({
   useAuth: vi.fn(),
+}));
+
+vi.mock('@/context/CreatorContext', () => ({
+  useCreator: vi.fn(),
 }));
 
 vi.mock('@/lib/notify', () => ({
@@ -26,6 +31,7 @@ vi.mock('@/components/QrCodeCard', () => ({
 }));
 
 const mockUseAuth = vi.mocked(useAuth);
+const mockUseCreator = vi.mocked(useCreator);
 
 const baseCreator = {
   id: 1,
@@ -94,6 +100,7 @@ describe('SettingsPage', () => {
       loginWithWallet: vi.fn(),
       logout: vi.fn(),
     });
+    mockUseCreator.mockReturnValue({ creator: baseCreator, loading: false, invalidate: vi.fn() });
   });
 
   afterEach(() => {
@@ -112,6 +119,27 @@ describe('SettingsPage', () => {
     await waitFor(() => expect(screen.getByText('Accept USDT')).toBeInTheDocument());
     expect(screen.getByText('Accept XLM')).toBeInTheDocument();
     expect(screen.getByText('Accept USDC')).toBeInTheDocument();
+  });
+
+  it('copies the connected wallet address and confirms success', async () => {
+    mockFetchRoutes({
+      '/api/creators/me': { body: baseCreator },
+      '/api/goals/bob': { body: { items: [] } },
+    });
+    const { notify } = await import('@/lib/notify');
+    const user = userEvent.setup();
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, 'clipboard', {
+      configurable: true,
+      value: { writeText },
+    });
+
+    render(<SettingsPage />);
+    await waitFor(() => expect(screen.getByText(baseCreator.walletAddress)).toBeInTheDocument());
+    await user.click(screen.getByRole('button', { name: 'Copy wallet address' }));
+
+    expect(writeText).toHaveBeenCalledWith(baseCreator.walletAddress);
+    expect(notify.success).toHaveBeenCalledWith('Wallet address copied.');
   });
 
   it('lists the creator\'s existing active goals with their server-computed progress', async () => {
@@ -205,6 +233,11 @@ describe('SettingsPage', () => {
     mockFetchRoutes({
       '/api/creators/me': { body: { ...baseCreator, presetAmounts: [2, 5, 20] } },
       '/api/goals/bob': { body: { items: [] } },
+    });
+    mockUseCreator.mockReturnValue({
+      creator: { ...baseCreator, presetAmounts: [2, 5, 20] },
+      loading: false,
+      invalidate: vi.fn(),
     });
 
     render(<SettingsPage />);

@@ -52,9 +52,9 @@ This runbook covers the steps for performing a contract upgrade safely.
 1. **Deploy new contracts**
    ```bash
    cd contracts/donation
-   soroban contract deploy --wasm target/wasm32-unknown-unknown/release/donation.wasm --source <admin-key> --network testnet
+   stellar contract deploy --wasm target/wasm32v1-none/release/donation.wasm --source-account <admin-key> --network testnet
    cd ../creator-registry
-   soroban contract deploy --wasm target/wasm32-unknown-unknown/release/creator_registry.wasm --source <admin-key> --network testnet
+   stellar contract deploy --wasm target/wasm32v1-none/release/creator_registry.wasm --source-account <admin-key> --network testnet
    ```
 
 2. **Initialize new contracts**
