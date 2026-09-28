@@ -42,6 +42,8 @@ const SUBSCRIPTIONS_KEY: Symbol = symbol_short!("subs");
 const SUB_COUNTER: Symbol = symbol_short!("sub_ctr");
 const EXECUTOR_KEY: Symbol = symbol_short!("executor");
 const ALLOWED_TOKEN_KEY: Symbol = symbol_short!("allowed");
+const MIN_DONATION_KEY: Symbol = symbol_short!("min_don");
+const MAX_DONATION_KEY: Symbol = symbol_short!("max_don");
 pub const MAX_MEMO_LENGTH: u32 = 140;
 
 /// Emitted whenever a donation is settled on-chain.
@@ -130,6 +132,14 @@ pub struct GoalUpdatedEvent {
 pub enum ChargeError {
     InsufficientAllowance = 1,
     InsufficientBalance = 2,
+}
+
+#[contracterror]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, PartialOrd, Ord)]
+#[repr(u32)]
+pub enum DonationError {
+    AmountTooLow = 10,
+    AmountTooHigh = 11,
 }
 
 #[contractevent(topics = ["sub_failed"])]
@@ -415,6 +425,40 @@ impl DonationContract {
         env.storage().instance().has(&(ALLOWED_TOKEN_KEY, token))
     }
 
+    /// Admin-gated: sets the minimum donation amount guardrail (0 to disable).
+    pub fn set_min_donation(env: Env, min_amount: i128) {
+        assert!(min_amount >= 0, "minimum donation must be non-negative");
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&ADMIN_KEY)
+            .expect("donation contract not initialized: call initialize() first");
+        admin.require_auth();
+        env.storage().instance().set(&MIN_DONATION_KEY, &min_amount);
+    }
+
+    /// Returns the currently configured minimum donation amount (0 if unconstrained).
+    pub fn get_min_donation(env: Env) -> i128 {
+        env.storage().instance().get(&MIN_DONATION_KEY).unwrap_or(0)
+    }
+
+    /// Admin-gated: sets the sanity-check maximum donation amount guardrail (0 to disable).
+    pub fn set_max_donation(env: Env, max_amount: i128) {
+        assert!(max_amount >= 0, "maximum donation must be non-negative");
+        let admin: Address = env
+            .storage()
+            .instance()
+            .get(&ADMIN_KEY)
+            .expect("donation contract not initialized: call initialize() first");
+        admin.require_auth();
+        env.storage().instance().set(&MAX_DONATION_KEY, &max_amount);
+    }
+
+    /// Returns the currently configured maximum donation amount (0 if unconstrained).
+    pub fn get_max_donation(env: Env) -> i128 {
+        env.storage().instance().get(&MAX_DONATION_KEY).unwrap_or(0)
+    }
+
     /// Transfer `amount` of `token` from `donor` to `creator`, record the
     /// donation locally, and notify the CreatorRegistry (cross-contract) so
     /// the creator's lifetime stats stay in sync.
@@ -434,6 +478,17 @@ impl DonationContract {
         assert!(!Self::is_paused(env.clone()), "contract is currently paused");
         donor.require_auth();
         assert!(amount > 0, "Donation amount must be positive");
+
+        let min_amount: i128 = env.storage().instance().get(&MIN_DONATION_KEY).unwrap_or(0);
+        if min_amount > 0 && amount < min_amount {
+            soroban_sdk::panic_with_error!(&env, DonationError::AmountTooLow);
+        }
+
+        let max_amount: i128 = env.storage().instance().get(&MAX_DONATION_KEY).unwrap_or(0);
+        if max_amount > 0 && amount > max_amount {
+            soroban_sdk::panic_with_error!(&env, DonationError::AmountTooHigh);
+        }
+
         assert!(
             memo.len() <= MAX_MEMO_LENGTH,
             "Donation memo exceeds maximum length"
@@ -1458,5 +1513,85 @@ mod tests {
             &500,
             &0,
         );
+    }
+
+    #[test]
+    fn test_min_donation_guardrail_rejects_below_minimum() {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+        let (admin, donation_client, _registry_client) = setup(&env);
+
+        let donor = Address::generate(&env);
+        let creator = Address::generate(&env);
+
+        let token_address = create_token_contract(&env, &admin);
+        donation_client.add_allowed_token(&token_address);
+        StellarAssetClient::new(&env, &token_address).mint(&donor, &10_000);
+
+        donation_client.register_creator(&creator, &String::from_bytes(&env, b"dev_min_test"));
+
+        // Set minimum donation to 500
+        donation_client.set_min_donation(&500);
+        assert_eq!(donation_client.get_min_donation(), 500);
+
+        // Donation below minimum (100 < 500) must fail with DonationError::AmountTooLow
+        let res = donation_client.try_donate(
+            &donor,
+            &creator,
+            &token_address,
+            &100,
+            &String::from_bytes(&env, b"Dust amount"),
+        );
+        assert_eq!(res, Err(Ok(DonationError::AmountTooLow)));
+
+        // Donation at minimum (500) succeeds
+        let success_res = donation_client.donate(
+            &donor,
+            &creator,
+            &token_address,
+            &500,
+            &String::from_bytes(&env, b"Valid min"),
+        );
+        assert_eq!(success_res.amount, 500);
+    }
+
+    #[test]
+    fn test_max_donation_guardrail_rejects_above_maximum() {
+        let env = Env::default();
+        env.mock_all_auths_allowing_non_root_auth();
+        let (admin, donation_client, _registry_client) = setup(&env);
+
+        let donor = Address::generate(&env);
+        let creator = Address::generate(&env);
+
+        let token_address = create_token_contract(&env, &admin);
+        donation_client.add_allowed_token(&token_address);
+        StellarAssetClient::new(&env, &token_address).mint(&donor, &50_000);
+
+        donation_client.register_creator(&creator, &String::from_bytes(&env, b"dev_max_test"));
+
+        // Set maximum donation to 5,000
+        donation_client.set_max_donation(&5000);
+        assert_eq!(donation_client.get_max_donation(), 5000);
+
+        // Donation above maximum (6,000 > 5,000) must fail with DonationError::AmountTooHigh
+        let res = donation_client.try_donate(
+            &donor,
+            &creator,
+            &token_address,
+            &6000,
+            &String::from_bytes(&env, b"Too large"),
+        );
+        assert_eq!(res, Err(Ok(DonationError::AmountTooHigh)));
+
+        // Donation within limit (4,000) succeeds
+        let success_res = donation_client.donate(
+            &donor,
+            &creator,
+            &token_address,
+            &4000,
+            &String::from_bytes(&env, b"Within max"),
+        );
+        assert_eq!(success_res.amount, 4000);
     }
 }
