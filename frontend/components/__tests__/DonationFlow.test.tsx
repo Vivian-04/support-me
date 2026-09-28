@@ -155,7 +155,9 @@ describe('Mobile Donation & Subscription Flow', () => {
 
     expect(screen.getByRole('button', { name: /start recurring donation/i })).toBeInTheDocument();
 
-    const intervalSelect = screen.getByRole('combobox');
+    const intervalSelect = screen
+      .getAllByRole('combobox')
+      .find((el) => (el as HTMLSelectElement).querySelector('option[value="7"]'))!;
     expect(intervalSelect).toHaveClass('min-h-[44px]');
     fireEvent.change(intervalSelect, { target: { value: '7' } });
     expect(intervalSelect).toHaveValue('7');

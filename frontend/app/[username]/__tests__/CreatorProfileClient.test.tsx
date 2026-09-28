@@ -278,9 +278,12 @@ describe('CreatorProfileClient', () => {
       '/api/creators/alice': { ...baseCreator, presetAmounts: [] },
       '/api/goals/alice': { items: [] },
     });
+    mockConnectWallet.mockResolvedValue('GDONORXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX');
 
     await renderProfile('alice');
     await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: /connect wallet/i }));
 
     for (const preset of ['1', '5', '10', '20']) {
       expect(screen.getByRole('button', { name: preset })).toBeInTheDocument();
@@ -292,9 +295,12 @@ describe('CreatorProfileClient', () => {
       '/api/creators/alice': { ...baseCreator, presetAmounts: [2, 15, 50] },
       '/api/goals/alice': { items: [] },
     });
+    mockConnectWallet.mockResolvedValue('GDONORXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX');
 
     await renderProfile('alice');
     await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: /connect wallet/i }));
 
     for (const preset of ['2', '15', '50']) {
       expect(screen.getByRole('button', { name: preset })).toBeInTheDocument();
@@ -307,9 +313,12 @@ describe('CreatorProfileClient', () => {
       '/api/creators/alice': { ...baseCreator, presetAmounts: [2, 15, 50] },
       '/api/goals/alice': { items: [] },
     });
+    mockConnectWallet.mockResolvedValue('GDONORXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX');
 
     await renderProfile('alice');
     await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: /connect wallet/i }));
 
     await userEvent.click(screen.getByRole('button', { name: '15' }));
 

@@ -132,6 +132,7 @@ export default function Home() {
             <a href="#features" className="font-bold text-ink hover:text-primary transition">Features</a>
             <a href="#how-it-works" className="font-bold text-ink hover:text-primary transition">How it Works</a>
             <Link href="/discover" className="font-bold text-ink hover:text-primary transition">Discover</Link>
+            <Link href="/leaderboard" className="font-bold text-ink hover:text-primary transition">Leaderboard</Link>
             {user && (
               <Link href="/app" className="font-bold text-ink hover:text-primary transition">
                 App
