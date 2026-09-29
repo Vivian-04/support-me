@@ -15,11 +15,7 @@ jest.mock("../../services/email/mailer", () => ({
 import { createHash } from "crypto";
 import prisma from "../../prisma";
 import { sendEmail } from "../../services/email/mailer";
-import {
-  magicLinkRateLimiter,
-  requestMagicLink,
-  verifyMagicLink,
-} from "../../services/magicLink";
+import { requestMagicLink, verifyMagicLink } from "../../services/magicLink";
 
 const mockedPrisma = prisma as unknown as {
   user: { findUnique: jest.Mock; upsert: jest.Mock };
@@ -31,7 +27,6 @@ const mockedSendEmail = sendEmail as jest.MockedFunction<typeof sendEmail>;
 
 beforeEach(() => {
   jest.clearAllMocks();
-  magicLinkRateLimiter.clear();
   mockedPrisma.$transaction.mockImplementation((callback: (client: typeof mockedPrisma) => unknown) =>
     callback(mockedPrisma)
   );
@@ -77,7 +72,7 @@ describe("requestMagicLink (#15)", () => {
     expect(emailedUrl).not.toContain(storedData.tokenHash);
   });
 
-  it("normalizes email casing/whitespace before storing and rate-limiting", async () => {
+  it("normalizes email casing/whitespace before storing", async () => {
     mockedPrisma.user.findUnique.mockResolvedValue(null);
     mockedPrisma.magicLinkToken.create.mockResolvedValue({});
 
@@ -86,29 +81,6 @@ describe("requestMagicLink (#15)", () => {
     expect(mockedPrisma.user.findUnique).toHaveBeenCalledWith({ where: { email: "mixed@case.com" } });
   });
 
-  it("rejects the 6th request for the same email within the rate-limit window", async () => {
-    mockedPrisma.user.findUnique.mockResolvedValue(null);
-    mockedPrisma.magicLinkToken.create.mockResolvedValue({});
-
-    for (let i = 0; i < 5; i++) {
-      await requestMagicLink("a@example.com");
-    }
-
-    await expect(requestMagicLink("a@example.com")).rejects.toMatchObject({
-      statusCode: 429,
-    });
-  });
-
-  it("does not rate-limit different emails against each other", async () => {
-    mockedPrisma.user.findUnique.mockResolvedValue(null);
-    mockedPrisma.magicLinkToken.create.mockResolvedValue({});
-
-    for (let i = 0; i < 5; i++) {
-      await requestMagicLink("a@example.com");
-    }
-
-    await expect(requestMagicLink("b@example.com")).resolves.toBeUndefined();
-  });
 });
 
 describe("verifyMagicLink (#15)", () => {

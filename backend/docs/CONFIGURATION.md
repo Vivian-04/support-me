@@ -21,6 +21,25 @@ after a change.
 | `CORS_ALLOWED_ORIGINS` | Optional; set for deployed browser frontends. | Empty. Comma-separated exact origins. Outside production, `http://localhost:3000` and `http://127.0.0.1:3000` are added automatically. Production allows no browser origins unless configured. |
 | `TRUST_PROXY` | Optional; set when the API is behind a trusted reverse proxy. | Unset leaves Express's default. Set to the number of proxy hops (commonly `1` on Railway) so IP-based limits see the client address. |
 
+## Public API rate limits
+
+All values must be positive integers. Window values are milliseconds. Limits
+are held in memory and apply per backend process; set `TRUST_PROXY` correctly so
+per-IP limits use the caller's address behind a trusted proxy.
+
+| Variable | Default | Scope |
+| --- | --- | --- |
+| `AUTH_RATE_LIMIT_WINDOW_MS` | `60000` | Window for wallet challenge and verification limits. |
+| `AUTH_RATE_LIMIT_IP_MAX` | `30` | Requests per IP, independently for each wallet-auth endpoint. |
+| `AUTH_CHALLENGE_RATE_LIMIT_ACCOUNT_MAX` | `5` | Challenge requests per wallet. |
+| `AUTH_VERIFY_RATE_LIMIT_ACCOUNT_MAX` | `10` | Verification attempts per wallet. |
+| `DONATION_RATE_LIMIT_WINDOW_MS` | `60000` | Window for donation-creation limits. |
+| `DONATION_RATE_LIMIT_IP_MAX` | `60` | Donation-creation requests per IP. |
+| `DONATION_RATE_LIMIT_ACCOUNT_MAX` | `20` | Donation-creation requests per sender wallet. |
+| `MAGIC_LINK_RATE_LIMIT_WINDOW_MS` | `900000` | Window for magic-link request limits. |
+| `MAGIC_LINK_RATE_LIMIT_IP_MAX` | `30` | Magic-link requests per IP. |
+| `MAGIC_LINK_RATE_LIMIT_ACCOUNT_MAX` | `5` | Magic-link requests per normalized email address. |
+
 ## Soroban event listener and RPC
 
 | Variable | Required? | Default / behavior |

@@ -17,6 +17,62 @@ export const config = {
   get jwtSecret() { return process.env.JWT_SECRET?.trim() || ""; },
 };
 
+export interface RateLimitConfig {
+  auth: {
+    windowMs: number;
+    ipMax: number;
+    challengeAccountMax: number;
+    verifyAccountMax: number;
+  };
+  donation: {
+    windowMs: number;
+    ipMax: number;
+    accountMax: number;
+  };
+  magicLink: {
+    windowMs: number;
+    ipMax: number;
+    accountMax: number;
+  };
+}
+
+function positiveIntegerEnv(name: string, fallback: number): number {
+  const raw = process.env[name]?.trim();
+  if (!raw) return fallback;
+
+  const value = Number(raw);
+  if (!Number.isSafeInteger(value) || value <= 0) {
+    throw new Error(`${name} must be a positive integer`);
+  }
+  return value;
+}
+
+/**
+ * Public API throttling settings. These are read when route modules are loaded,
+ * so changing them requires the same process restart as every other env setting.
+ * Invalid explicit values fail startup instead of silently disabling protection.
+ */
+export function getRateLimitConfig(): RateLimitConfig {
+  return {
+    auth: {
+      windowMs: positiveIntegerEnv("AUTH_RATE_LIMIT_WINDOW_MS", 60_000),
+      ipMax: positiveIntegerEnv("AUTH_RATE_LIMIT_IP_MAX", 30),
+      challengeAccountMax: positiveIntegerEnv("AUTH_CHALLENGE_RATE_LIMIT_ACCOUNT_MAX", 5),
+      verifyAccountMax: positiveIntegerEnv("AUTH_VERIFY_RATE_LIMIT_ACCOUNT_MAX", 10),
+    },
+    donation: {
+      windowMs: positiveIntegerEnv("DONATION_RATE_LIMIT_WINDOW_MS", 60_000),
+      ipMax: positiveIntegerEnv("DONATION_RATE_LIMIT_IP_MAX", 60),
+      accountMax: positiveIntegerEnv("DONATION_RATE_LIMIT_ACCOUNT_MAX", 20),
+    },
+    magicLink: {
+      windowMs: positiveIntegerEnv("MAGIC_LINK_RATE_LIMIT_WINDOW_MS", 15 * 60_000),
+      ipMax: positiveIntegerEnv("MAGIC_LINK_RATE_LIMIT_IP_MAX", 30),
+      accountMax: positiveIntegerEnv("MAGIC_LINK_RATE_LIMIT_ACCOUNT_MAX", 5),
+    },
+  };
+}
+
 export function validateConfig() {
   const missing: string[] = [];
 

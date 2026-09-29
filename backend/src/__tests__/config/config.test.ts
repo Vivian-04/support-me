@@ -1,4 +1,10 @@
-import { MissingEnvError, assertRequiredEnv, getAllowedOrigins, getJwtSecret } from "../../config";
+import {
+  MissingEnvError,
+  assertRequiredEnv,
+  getAllowedOrigins,
+  getJwtSecret,
+  getRateLimitConfig,
+} from "../../config";
 
 describe("required env validation (#178)", () => {
   const originalNodeEnv = process.env.NODE_ENV;
@@ -98,5 +104,59 @@ describe("CORS origin allowlist (#179)", () => {
   it("de-duplicates repeated origins", () => {
     process.env.CORS_ALLOWED_ORIGINS = "https://a.example,https://a.example/";
     expect(getAllowedOrigins()).toEqual(["https://a.example"]);
+  });
+});
+
+describe("rate limit configuration (#25)", () => {
+  const variableNames = [
+    "AUTH_RATE_LIMIT_WINDOW_MS",
+    "AUTH_RATE_LIMIT_IP_MAX",
+    "AUTH_CHALLENGE_RATE_LIMIT_ACCOUNT_MAX",
+    "AUTH_VERIFY_RATE_LIMIT_ACCOUNT_MAX",
+    "DONATION_RATE_LIMIT_WINDOW_MS",
+    "DONATION_RATE_LIMIT_IP_MAX",
+    "DONATION_RATE_LIMIT_ACCOUNT_MAX",
+    "MAGIC_LINK_RATE_LIMIT_WINDOW_MS",
+    "MAGIC_LINK_RATE_LIMIT_IP_MAX",
+    "MAGIC_LINK_RATE_LIMIT_ACCOUNT_MAX",
+  ];
+  const originals = Object.fromEntries(variableNames.map((name) => [name, process.env[name]]));
+
+  beforeEach(() => {
+    for (const name of variableNames) delete process.env[name];
+  });
+
+  afterAll(() => {
+    for (const name of variableNames) {
+      const value = originals[name];
+      if (value === undefined) delete process.env[name];
+      else process.env[name] = value;
+    }
+  });
+
+  it("uses safe defaults when no rate limit variables are set", () => {
+    expect(getRateLimitConfig()).toEqual({
+      auth: { windowMs: 60_000, ipMax: 30, challengeAccountMax: 5, verifyAccountMax: 10 },
+      donation: { windowMs: 60_000, ipMax: 60, accountMax: 20 },
+      magicLink: { windowMs: 900_000, ipMax: 30, accountMax: 5 },
+    });
+  });
+
+  it("reads limits and windows from environment variables", () => {
+    process.env.AUTH_RATE_LIMIT_WINDOW_MS = "120000";
+    process.env.AUTH_RATE_LIMIT_IP_MAX = "12";
+    process.env.DONATION_RATE_LIMIT_ACCOUNT_MAX = "7";
+    process.env.MAGIC_LINK_RATE_LIMIT_IP_MAX = "9";
+
+    const config = getRateLimitConfig();
+    expect(config.auth.windowMs).toBe(120_000);
+    expect(config.auth.ipMax).toBe(12);
+    expect(config.donation.accountMax).toBe(7);
+    expect(config.magicLink.ipMax).toBe(9);
+  });
+
+  it("rejects invalid explicit values", () => {
+    process.env.AUTH_RATE_LIMIT_IP_MAX = "0";
+    expect(() => getRateLimitConfig()).toThrow(/AUTH_RATE_LIMIT_IP_MAX must be a positive integer/);
   });
 });
