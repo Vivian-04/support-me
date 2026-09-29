@@ -36,13 +36,75 @@ dashboard. JWTs are signed with `JWT_SECRET` and expire after 7 days.
 
 ## 1. Stellar wallet sign-in
 
-The original flow: the client asks for a challenge, the wallet signs it, and the
-backend verifies the signature against the public key.
+The wallet flow proves control of the private key for a Stellar public address;
+the address alone is not sufficient to sign in. The frontend orchestration is
+in [`AuthContext.tsx`](../frontend/context/AuthContext.tsx), wallet signing is
+wrapped by [`wallet.js`](../frontend/lib/wallet.js), and the backend endpoints
+are implemented in [`auth.ts`](../backend/src/routes/auth.ts).
 
-- `POST /api/auth/challenge` — body `{ walletAddress }`, returns `{ message }`.
-  The message embeds a random nonce and is valid for **5 minutes**.
-- `POST /api/auth/verify` — body `{ walletAddress, signedMessage }` (base64
-  signature from the wallet's `signMessage` call), returns a session.
+### End-to-end flow
+
+1. The user chooses a wallet in the Stellar Wallets Kit. The frontend obtains
+  its public address and sends it to `POST /api/auth/challenge` as
+  `{ walletAddress }`.
+2. The backend validates the address, creates a cryptographically random
+  16-byte nonce, and builds a message containing the SupportMe sign-in text,
+  address, nonce, and issue time. It stores that message with a five-minute
+  expiry and returns `{ message }`. Challenge creation is rate-limited by IP
+  and wallet address.
+3. The frontend passes the exact message and address to the wallet's
+  `signMessage` method. The wallet prompts the user and returns
+  `signedMessage` (base64 encoded); the private key does not leave the wallet.
+4. The frontend posts `{ walletAddress, signedMessage }` to
+  `POST /api/auth/verify`. The backend looks up the unexpired challenge for
+  that address, prepends `Stellar Signed Message:\n` to the stored message,
+  hashes the resulting bytes with SHA-256, and verifies the decoded signature
+  against the public key. A missing or expired challenge and an invalid
+  signature are rejected.
+5. After a valid signature, the backend deletes the challenge so it cannot be
+  used again, upserts the wallet user, checks whether that user has a creator
+  profile, and issues a JWT. The response contains `{ user, token,
+  hasProfile, username }`.
+6. The frontend keeps the session in the auth context and writes `authToken`
+  and `authUser` to `localStorage`. On mount, `AuthProvider` restores those
+  values. Authenticated API calls send the JWT as a bearer token; the backend
+  verifies it in [`auth.ts`](../backend/src/middleware/auth.ts). Logging out
+  clears the stored session and disconnects the wallet.
+
+```mermaid
+sequenceDiagram
+   actor User
+   participant Frontend as AuthContext
+   participant Wallet as Stellar Wallets Kit
+   participant API as Backend auth routes
+   participant Store as ChallengeStore
+   participant DB as Database
+
+   User->>Frontend: Choose wallet and sign in
+   Frontend->>Wallet: Connect wallet
+   Wallet-->>Frontend: Public address
+   Frontend->>API: POST /api/auth/challenge { walletAddress }
+   API->>Store: Save nonce-bearing message (5-minute expiry)
+   API-->>Frontend: { message }
+   Frontend->>Wallet: signMessage(message, address)
+   Wallet-->>User: Request signature approval
+   User->>Wallet: Approve
+   Wallet-->>Frontend: Base64 signedMessage
+   Frontend->>API: POST /api/auth/verify { walletAddress, signedMessage }
+   API->>Store: Get unexpired challenge
+   API->>API: Verify SHA-256 signed-message signature
+   API->>Store: Delete challenge after successful verification
+   API->>DB: Upsert user and find creator profile
+   API-->>Frontend: { user, token, hasProfile, username }
+   Frontend->>Frontend: Store session in context and localStorage
+```
+
+Challenges are held in the backend process's bounded in-memory
+[`ChallengeStore`](../backend/src/services/challengeStore.ts). With more than
+one backend instance, the challenge request and verification must reach the
+same instance (for example, through sticky sessions), or the store must be
+replaced with a shared TTL-backed store. The signed message is single-use once
+verification succeeds and expires after five minutes.
 
 No extra environment variables are required beyond `JWT_SECRET`.
 
