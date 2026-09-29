@@ -9,13 +9,21 @@ import { applyDonationToGoals } from "../services/goalService";
 import { BadRequestError, NotFoundError } from "../errors/AppError";
 import { RateLimiter } from "../services/rateLimiter";
 import { clientIp, rateLimit } from "../middleware/rateLimit";
+import { getRateLimitConfig } from "../config";
 
 const router = Router();
+const rateLimits = getRateLimitConfig();
 
 // Donation creation does at least one database query per request, so it is
 // limited per IP and per sender wallet before any of that work happens.
-export const donationIpLimiter = new RateLimiter(60, 60 * 1000);
-export const donationSenderLimiter = new RateLimiter(20, 60 * 1000);
+export const donationIpLimiter = new RateLimiter(
+  rateLimits.donation.ipMax,
+  rateLimits.donation.windowMs
+);
+export const donationSenderLimiter = new RateLimiter(
+  rateLimits.donation.accountMax,
+  rateLimits.donation.windowMs
+);
 
 router.get(
   "/",

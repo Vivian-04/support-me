@@ -18,11 +18,13 @@ import { completeTwitterAuth, startTwitterAuth } from '../services/twitterAuth';
 import { ChallengeStore } from '../services/challengeStore';
 import { RateLimiter } from '../services/rateLimiter';
 import { clientIp, rateLimit } from '../middleware/rateLimit';
+import { getRateLimitConfig } from '../config';
 
 const router = Router();
 
 const STELLAR_SIGNED_MESSAGE_PREFIX = 'Stellar Signed Message:\n';
 const CHALLENGE_TTL_MS = 5 * 60 * 1000;
+const rateLimits = getRateLimitConfig();
 
 // Bounded, self-sweeping store (see services/challengeStore.ts for the
 // single-instance caveat).
@@ -32,10 +34,24 @@ challenges.startSweeping();
 // Per-IP and per-wallet limits on the wallet sign-in endpoints. Generous for a
 // real user retrying a signature, tight enough to stop a flood from growing the
 // challenge store or hammering /verify.
-export const challengeIpLimiter = new RateLimiter(30, 60 * 1000);
-export const challengeWalletLimiter = new RateLimiter(5, 60 * 1000);
-export const verifyIpLimiter = new RateLimiter(30, 60 * 1000);
-export const verifyWalletLimiter = new RateLimiter(10, 60 * 1000);
+export const challengeIpLimiter = new RateLimiter(rateLimits.auth.ipMax, rateLimits.auth.windowMs);
+export const challengeWalletLimiter = new RateLimiter(
+  rateLimits.auth.challengeAccountMax,
+  rateLimits.auth.windowMs
+);
+export const verifyIpLimiter = new RateLimiter(rateLimits.auth.ipMax, rateLimits.auth.windowMs);
+export const verifyWalletLimiter = new RateLimiter(
+  rateLimits.auth.verifyAccountMax,
+  rateLimits.auth.windowMs
+);
+export const magicLinkIpLimiter = new RateLimiter(
+  rateLimits.magicLink.ipMax,
+  rateLimits.magicLink.windowMs
+);
+export const magicLinkEmailLimiter = new RateLimiter(
+  rateLimits.magicLink.accountMax,
+  rateLimits.magicLink.windowMs
+);
 
 router.post(
   '/challenge',
@@ -113,7 +129,13 @@ router.post(
 // the wallet-signature flow above.
 router.post(
   '/magic-link',
+  rateLimit(magicLinkIpLimiter, clientIp, 'magic link'),
   validate({ body: magicLinkRequestSchema }),
+  rateLimit(
+    magicLinkEmailLimiter,
+    (req) => req.body.email.trim().toLowerCase(),
+    'magic link'
+  ),
   asyncHandler(async (req, res) => {
     const { email } = req.body;
 
@@ -121,11 +143,8 @@ router.post(
 
     // Same response for a new email and a returning one: this endpoint
     // must not be usable to enumerate which addresses already have an
-    // account. A rate-limited request is the one exception, surfaced as
-    // its own 429 (asyncHandler routes the thrown TooManyRequestsError to
-    // the global error handler) rather than folded into this message,
-    // since "you're sending too many requests" doesn't leak anything
-    // about the target address's account status.
+    // account. Rate-limit middleware returns its own 429 before this handler;
+    // that does not reveal anything about the target address's account status.
     return res.json({ message: 'If that email is valid, a sign-in link has been sent.' });
   })
 );

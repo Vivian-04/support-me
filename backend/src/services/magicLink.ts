@@ -2,17 +2,11 @@ import { randomBytes, createHash } from "crypto";
 import prisma from "../prisma";
 import { sendEmail } from "./email/mailer";
 import { magicLinkEmail } from "./email/templates";
-import { RateLimiter } from "./rateLimiter";
 import { generateToken } from "../middleware/auth";
-import { BadRequestError, TooManyRequestsError, UnauthorizedError } from "../errors/AppError";
+import { BadRequestError, UnauthorizedError } from "../errors/AppError";
 
 const TOKEN_TTL_MS = 15 * 60 * 1000;
 const TOKEN_BYTES = 32;
-
-// 5 requests per email per 15 minutes: generous enough for a user who
-// mistypes their inbox or needs to retry, but bounded so an attacker
-// can't use this endpoint to spam an arbitrary address.
-export const magicLinkRateLimiter = new RateLimiter(5, 15 * 60 * 1000);
 
 const verifyUrl = (token: string): string =>
   `${(process.env.APP_URL || "http://localhost:3000").replace(/\/$/, "")}/auth/magic-link/verify?token=${token}`;
@@ -31,10 +25,6 @@ function hashToken(token: string): string {
  */
 export async function requestMagicLink(email: string): Promise<void> {
   const normalizedEmail = email.trim().toLowerCase();
-
-  if (!magicLinkRateLimiter.attempt(normalizedEmail)) {
-    throw new TooManyRequestsError("Too many magic link requests, please try again later");
-  }
 
   const token = randomBytes(TOKEN_BYTES).toString("base64url");
   const tokenHash = hashToken(token);

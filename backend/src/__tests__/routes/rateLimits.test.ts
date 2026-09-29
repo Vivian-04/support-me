@@ -27,6 +27,8 @@ import {
   challengeWalletLimiter,
   verifyIpLimiter,
   verifyWalletLimiter,
+  magicLinkIpLimiter,
+  magicLinkEmailLimiter,
 } from "../../routes/auth";
 import { donationIpLimiter, donationSenderLimiter } from "../../routes/donations";
 
@@ -40,6 +42,8 @@ beforeEach(() => {
     challengeWalletLimiter,
     verifyIpLimiter,
     verifyWalletLimiter,
+    magicLinkIpLimiter,
+    magicLinkEmailLimiter,
     donationIpLimiter,
     donationSenderLimiter,
   ]) {
@@ -102,6 +106,26 @@ describe("POST /api/auth/verify rate limiting (#180)", () => {
 
     expect(res.status).toBe(429);
     expect(res.headers["retry-after"]).toBeDefined();
+  });
+});
+
+describe("POST /api/auth/magic-link rate limiting (#25)", () => {
+  it("rejects an email past 5 requests with 429 and Retry-After", async () => {
+    for (let i = 0; i < 5; i++) {
+      const res = await request(app)
+        .post("/api/auth/magic-link")
+        .send({ email: "User@Example.com" });
+      expect(res.status).toBe(200);
+    }
+
+    const res = await request(app)
+      .post("/api/auth/magic-link")
+      .send({ email: "user@example.com" });
+
+    expect(res.status).toBe(429);
+    expect(res.body.code).toBe("TOO_MANY_REQUESTS");
+    expect(Number(res.headers["retry-after"])).toBeGreaterThan(0);
+    expect(res.body.error).toMatch(/retry in \d+ seconds/i);
   });
 });
 
