@@ -278,9 +278,12 @@ describe('CreatorProfileClient', () => {
       '/api/creators/alice': { ...baseCreator, presetAmounts: [] },
       '/api/goals/alice': { items: [] },
     });
+    mockConnectWallet.mockResolvedValue('GDONORXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX');
 
     await renderProfile('alice');
     await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: /connect wallet/i }));
 
     for (const preset of ['1', '5', '10', '20']) {
       expect(screen.getByRole('button', { name: preset })).toBeInTheDocument();
@@ -292,9 +295,12 @@ describe('CreatorProfileClient', () => {
       '/api/creators/alice': { ...baseCreator, presetAmounts: [2, 15, 50] },
       '/api/goals/alice': { items: [] },
     });
+    mockConnectWallet.mockResolvedValue('GDONORXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX');
 
     await renderProfile('alice');
     await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+
+    await userEvent.click(screen.getByRole('button', { name: /connect wallet/i }));
 
     for (const preset of ['2', '15', '50']) {
       expect(screen.getByRole('button', { name: preset })).toBeInTheDocument();
@@ -307,13 +313,78 @@ describe('CreatorProfileClient', () => {
       '/api/creators/alice': { ...baseCreator, presetAmounts: [2, 15, 50] },
       '/api/goals/alice': { items: [] },
     });
+    mockConnectWallet.mockResolvedValue('GDONORXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX');
 
     await renderProfile('alice');
     await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
 
+    await userEvent.click(screen.getByRole('button', { name: /connect wallet/i }));
+
     await userEvent.click(screen.getByRole('button', { name: '15' }));
 
     expect(screen.getByLabelText(/amount/i)).toHaveValue(15);
+  });
+
+  describe('donation amount guardrails (#45)', () => {
+    it('surfaces the configured minimum donation amount to the user', async () => {
+      mockFetchSequence({
+        '/api/creators/alice': baseCreator,
+        '/api/goals/alice': { items: [] },
+      });
+      mockConnectWallet.mockResolvedValue('GDONORXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX');
+
+      await renderProfile('alice');
+      await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+      await userEvent.click(screen.getByRole('button', { name: /connect wallet/i }));
+
+      expect(screen.getByTestId('min-donation-label')).toHaveTextContent(/minimum donation: 0.1 XLM/i);
+    });
+
+    it('rejects donation submission and shows validation error when below minimum', async () => {
+      mockFetchSequence({
+        '/api/creators/alice': baseCreator,
+        '/api/goals/alice': { items: [] },
+      });
+      mockConnectWallet.mockResolvedValue('GDONORXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX');
+
+      await renderProfile('alice');
+      await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+      await userEvent.click(screen.getByRole('button', { name: /connect wallet/i }));
+
+      const amountInput = screen.getByLabelText(/amount/i);
+      await userEvent.clear(amountInput);
+      await userEvent.type(amountInput, '0.05');
+
+      expect(screen.getByRole('alert')).toHaveTextContent(/minimum 0.1/i);
+      expect(screen.getByRole('button', { name: /send donation/i })).toBeDisabled();
+    });
+
+    it('prompts with explicit confirmation when donation exceeds large donation threshold', async () => {
+      mockFetchSequence({
+        '/api/creators/alice': baseCreator,
+        '/api/goals/alice': { items: [] },
+      });
+      mockConnectWallet.mockResolvedValue('GDONORXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX');
+
+      await renderProfile('alice');
+      await waitFor(() => expect(screen.getByText('Alice')).toBeInTheDocument());
+      await userEvent.click(screen.getByRole('button', { name: /connect wallet/i }));
+
+      const amountInput = screen.getByLabelText(/amount/i);
+      await userEvent.clear(amountInput);
+      await userEvent.type(amountInput, '2500');
+
+      // Large donation warning is surfaced
+      expect(screen.getByTestId('large-donation-warning')).toBeInTheDocument();
+      const sendBtn = screen.getByRole('button', { name: /send donation/i });
+      expect(sendBtn).toBeDisabled();
+
+      // Check explicit confirmation
+      const confirmCheckbox = screen.getByTestId('large-donation-checkbox');
+      await userEvent.click(confirmCheckbox);
+
+      expect(sendBtn).not.toBeDisabled();
+    });
   });
 
   describe('language switcher', () => {

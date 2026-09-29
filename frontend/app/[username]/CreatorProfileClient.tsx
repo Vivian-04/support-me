@@ -54,6 +54,8 @@ interface Creator {
 // Fallback quick-select amounts shown on the donate page when a creator
 // hasn't configured their own presets from Settings.
 const DEFAULT_DONATION_PRESETS = ['1', '5', '10', '20'];
+export const MIN_DONATION_AMOUNT = 0.1;
+export const LARGE_DONATION_THRESHOLD = 1000;
 
 interface Goal {
   id: number;
@@ -102,6 +104,7 @@ function CreatorProfileView({ username, locale, onLocaleChange }: CreatorProfile
   const [assetCode, setAssetCode] = useState('XLM');
   const [sending, setSending] = useState(false);
   const [txStatus, setTxStatus] = useState<string | null>(null);
+  const [largeDonationConfirmed, setLargeDonationConfirmed] = useState(false);
 
   const [recurring, setRecurring] = useState(false);
   const [intervalChoice, setIntervalChoice] = useState<'7' | '30' | 'custom'>('30');
@@ -724,20 +727,31 @@ function CreatorProfileView({ username, locale, onLocaleChange }: CreatorProfile
 
               {(() => {
                 const parsedAmt = parseFloat(donationAmount);
-                const isAmountValid = Number.isFinite(parsedAmt) && parsedAmt >= 0.1;
+                const isAmountValid = Number.isFinite(parsedAmt) && parsedAmt >= MIN_DONATION_AMOUNT;
+                const isLargeDonation = Number.isFinite(parsedAmt) && parsedAmt >= LARGE_DONATION_THRESHOLD;
+                const canSubmit = isAmountValid && (!isLargeDonation || largeDonationConfirmed);
+
                 return (
                   <>
                     <div>
-                      <label htmlFor="donation-amount" className="block text-sm font-bold text-ink mb-2">
-                        {t('amountLabel', { asset: assetCode })}
-                      </label>
+                      <div className="flex items-center justify-between mb-2">
+                        <label htmlFor="donation-amount" className="block text-sm font-bold text-ink">
+                          {t('amountLabel', { asset: assetCode })}
+                        </label>
+                        <span className="text-xs text-muted font-bold" data-testid="min-donation-label">
+                          {t('minDonation', { min: MIN_DONATION_AMOUNT, asset: assetCode })}
+                        </span>
+                      </div>
                       <input
                         id="donation-amount"
                         type="number"
-                        min="0.1"
+                        min={MIN_DONATION_AMOUNT}
                         step="0.1"
                         value={donationAmount}
-                        onChange={(e) => setDonationAmount(e.target.value)}
+                        onChange={(e) => {
+                          setDonationAmount(e.target.value);
+                          setLargeDonationConfirmed(false);
+                        }}
                         className={`input-brutal ${!isAmountValid ? 'border-red-500' : ''}`}
                       />
                       {!isAmountValid && (
@@ -753,7 +767,10 @@ function CreatorProfileView({ username, locale, onLocaleChange }: CreatorProfile
                       {presets.map((preset) => (
                         <button
                           key={preset}
-                          onClick={() => setDonationAmount(preset)}
+                          onClick={() => {
+                            setDonationAmount(preset);
+                            setLargeDonationConfirmed(false);
+                          }}
                           className={`btn-brutal text-sm px-0 py-2 min-h-[44px] ${
                             donationAmount === preset ? 'btn-brutal-primary' : 'btn-brutal-white'
                           }`}
@@ -762,6 +779,30 @@ function CreatorProfileView({ username, locale, onLocaleChange }: CreatorProfile
                         </button>
                       ))}
                     </div>
+
+                    {isLargeDonation && (
+                      <div
+                        className="card-brutal bg-amber-50 dark:bg-amber-950/30 border-2 border-amber-500 p-3 text-xs space-y-2"
+                        role="region"
+                        aria-label="Large donation warning"
+                        data-testid="large-donation-warning"
+                      >
+                        <p className="text-amber-900 dark:text-amber-200 font-bold flex items-center gap-1.5">
+                          <span>⚠️</span>
+                          {t('largeDonationWarning', { amount: donationAmount, asset: assetCode })}
+                        </p>
+                        <label className="flex items-center gap-2 cursor-pointer font-bold text-ink select-none">
+                          <input
+                            type="checkbox"
+                            checked={largeDonationConfirmed}
+                            onChange={(e) => setLargeDonationConfirmed(e.target.checked)}
+                            className="h-4 w-4 accent-amber-600 rounded border-ink"
+                            data-testid="large-donation-checkbox"
+                          />
+                          <span>{t('confirmLargeDonation', { amount: donationAmount, asset: assetCode })}</span>
+                        </label>
+                      </div>
+                    )}
 
                     <div>
                       <label htmlFor="donation-message" className="block text-sm font-bold text-ink mb-2">
@@ -835,7 +876,7 @@ function CreatorProfileView({ username, locale, onLocaleChange }: CreatorProfile
 
                     <button
                       onClick={recurring ? handleStartSubscription : handleSendDonation}
-                      disabled={sending || !creator.walletAddress || !isAmountValid}
+                      disabled={sending || !creator.walletAddress || !canSubmit}
                       className="btn-brutal btn-brutal-lime w-full disabled:opacity-50 disabled:cursor-not-allowed"
                     >
                       {recurring ? t('startRecurringDonation') : t('sendDonation')}

@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { render, screen, waitFor, fireEvent } from '@testing-library/react';
 import AppHubPage from '@/app/app/page';
 import { useAuth } from '@/context/AuthContext';
+import { useCreator } from '@/context/CreatorContext';
 
 vi.mock('@/context/AuthContext', () => ({
   useAuth: vi.fn(),
@@ -9,6 +10,10 @@ vi.mock('@/context/AuthContext', () => ({
 
 vi.mock('@/components/AppNav', () => ({
   AppNav: () => <nav data-testid="app-nav" />,
+}));
+
+vi.mock('@/context/CreatorContext', () => ({
+  useCreator: vi.fn(),
 }));
 
 vi.mock('@stellar/stellar-sdk', async (importOriginal) => {
@@ -27,6 +32,7 @@ vi.mock('@stellar/stellar-sdk', async (importOriginal) => {
 });
 
 const mockUseAuth = vi.mocked(useAuth);
+const mockUseCreator = vi.mocked(useCreator);
 
 describe('AppHubPage', () => {
   const creator = {
@@ -35,6 +41,13 @@ describe('AppHubPage', () => {
     username: 'alice',
     displayName: 'Alice',
     walletAddress: 'GALICE',
+    avatarUrl: null,
+    donationGoal: null,
+    acceptsXlm: true,
+    acceptsUsdc: true,
+    acceptsUsdt: false,
+    socialLinks: null,
+    presetAmounts: [],
   };
 
   beforeEach(() => {
@@ -44,6 +57,12 @@ describe('AppHubPage', () => {
       loading: false,
       loginWithWallet: vi.fn(),
       logout: vi.fn(),
+    });
+
+    mockUseCreator.mockReturnValue({
+      creator,
+      loading: false,
+      invalidate: vi.fn(),
     });
 
     vi.stubGlobal(
