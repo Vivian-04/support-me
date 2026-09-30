@@ -64,16 +64,21 @@ function mockFetchRoutes(handlers: Record<string, { ok?: boolean; body?: unknown
   vi.stubGlobal(
     'fetch',
     vi.fn(async (url: string, init?: RequestInit) => {
-      // Goal create/end share a URL prefix with the GET list fetch
+      // Goal create/edit/delete share a URL prefix with the GET list fetch
       // (/api/goals/:usernameOrId), so route by method first — a plain
       // substring match on the URL alone would let a GET-shaped stub
-      // swallow the POST/PUT calls too.
+      // swallow the POST/PUT/DELETE calls too.
       const method = (init?.method || 'GET').toUpperCase();
+      if (url.includes('/api/goals') && method === 'DELETE') {
+        return { ok: true, status: 204, json: async () => ({}) } as Response;
+      }
       if (url.includes('/api/goals') && (method === 'POST' || method === 'PUT')) {
         // Shaped like the real API's Goal record — Prisma always populates
         // every column (e.g. currentAmount defaults to 0, never undefined).
         const body = init?.body ? JSON.parse(init.body as string) : {};
-        return { ok: true, json: async () => goal({ id: 99, currentAmount: 0, ...body }) } as Response;
+        // A PUT echoes back the goal it edited (/api/goals/:id); a POST mints a new one.
+        const id = method === 'PUT' ? Number(url.split('/').pop()) : 99;
+        return { ok: true, json: async () => goal({ id, currentAmount: 0, ...body }) } as Response;
       }
 
       for (const [pattern, config] of Object.entries(handlers)) {
@@ -188,26 +193,80 @@ describe('SettingsPage', () => {
     );
   });
 
-  it('ends a goal via PUT with status EXPIRED and removes it from the list', async () => {
+  it('edits a goal in place via PUT and shows the updated values', async () => {
     mockFetchRoutes({
       '/api/creators/me': { body: baseCreator },
-      '/api/goals/bob': { body: { items: [goal({ id: 7, title: 'Old goal' })] } },
+      '/api/goals/bob': { body: { items: [goal({ id: 7, title: 'Old goal', description: null })] } },
     });
     const user = userEvent.setup();
 
     render(<SettingsPage />);
     await waitFor(() => expect(screen.getByText('Old goal')).toBeInTheDocument());
 
-    await user.click(screen.getByRole('button', { name: 'End goal' }));
+    await user.click(screen.getByRole('button', { name: 'Edit' }));
+    const titleInput = screen.getByLabelText('Title (optional)', { selector: '#editGoalTitle' });
+    await user.clear(titleInput);
+    await user.type(titleInput, 'Buy a new laptop');
+    await user.type(screen.getByLabelText('Description (optional)', { selector: '#editGoalDescription' }), 'For video editing');
+    const targetInput = screen.getByLabelText('Target amount (XLM)');
+    await user.clear(targetInput);
+    await user.type(targetInput, '800');
+    await user.click(screen.getByRole('button', { name: 'Save goal' }));
 
-    await waitFor(() => expect(screen.queryByText('Old goal')).not.toBeInTheDocument());
-    const calls = (global.fetch as ReturnType<typeof vi.fn>).mock.calls;
-    const putCall = calls.find((call) => {
+    await waitFor(() => expect(screen.getByText('Buy a new laptop')).toBeInTheDocument());
+    expect(screen.getByText('For video editing')).toBeInTheDocument();
+    const putCall = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.find((call) => {
       const [url, init] = call as [string, RequestInit];
       return url.includes('/api/goals/7') && init?.method === 'PUT';
     }) as [string, RequestInit] | undefined;
-    expect(putCall).toBeTruthy();
-    expect(JSON.parse(putCall![1].body as string)).toEqual({ status: 'EXPIRED' });
+    expect(JSON.parse(putCall![1].body as string)).toEqual({
+      title: 'Buy a new laptop',
+      description: 'For video editing',
+      targetAmount: 800,
+    });
+  });
+
+  it('deletes a goal via DELETE after confirmation and removes it from the list', async () => {
+    mockFetchRoutes({
+      '/api/creators/me': { body: baseCreator },
+      '/api/goals/bob': { body: { items: [goal({ id: 7, title: 'Old goal' })] } },
+    });
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(true);
+    const user = userEvent.setup();
+
+    render(<SettingsPage />);
+    await waitFor(() => expect(screen.getByText('Old goal')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+
+    await waitFor(() => expect(screen.queryByText('Old goal')).not.toBeInTheDocument());
+    const deleted = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.some((call) => {
+      const [url, init] = call as [string, RequestInit];
+      return url.includes('/api/goals/7') && init?.method === 'DELETE';
+    });
+    expect(deleted).toBe(true);
+    confirmSpy.mockRestore();
+  });
+
+  it('keeps a goal when deletion is not confirmed', async () => {
+    mockFetchRoutes({
+      '/api/creators/me': { body: baseCreator },
+      '/api/goals/bob': { body: { items: [goal({ id: 7, title: 'Old goal' })] } },
+    });
+    const confirmSpy = vi.spyOn(window, 'confirm').mockReturnValue(false);
+    const user = userEvent.setup();
+
+    render(<SettingsPage />);
+    await waitFor(() => expect(screen.getByText('Old goal')).toBeInTheDocument());
+
+    await user.click(screen.getByRole('button', { name: 'Delete' }));
+
+    expect(screen.getByText('Old goal')).toBeInTheDocument();
+    const deleted = (global.fetch as ReturnType<typeof vi.fn>).mock.calls.some(
+      (call) => (call[1] as RequestInit | undefined)?.method === 'DELETE'
+    );
+    expect(deleted).toBe(false);
+    confirmSpy.mockRestore();
   });
 
   it('blocks saving when every payment method is disabled', async () => {

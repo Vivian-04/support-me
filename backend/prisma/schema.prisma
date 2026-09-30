@@ -188,6 +188,9 @@ model Goal {
   // UI (e.g. "New microphone", "Monthly support"). Optional: a goal migrated
   // from the old single `donationGoal` field has none.
   title         String?
+  // Optional longer blurb shown under the title on the public profile
+  // (e.g. what the funds are for).
+  description   String?
   targetAmount  Float
   currentAmount Float               @default(0)
   // Asset this goal is denominated in ("XLM", "USDC", "USDT", ...). Amounts

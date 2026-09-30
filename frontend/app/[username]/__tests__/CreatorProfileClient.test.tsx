@@ -217,14 +217,29 @@ describe('CreatorProfileClient', () => {
     await renderProfile('alice');
 
     await waitFor(() => expect(screen.getByText('New microphone')).toBeInTheDocument());
-    expect(screen.getByText('120 / 500 XLM')).toBeInTheDocument();
+    expect(screen.getByText('120 / 500 XLM (24%)')).toBeInTheDocument();
 
     expect(screen.getByText('Monthly support')).toBeInTheDocument();
-    expect(screen.getByText('0 / 2000 XLM')).toBeInTheDocument();
+    expect(screen.getByText('0 / 2000 XLM (0%)')).toBeInTheDocument();
     expect(screen.getByText('Recurring')).toBeInTheDocument();
 
     // Two independent progressbars, not one summed/blended total.
     expect(screen.getAllByRole('progressbar')).toHaveLength(2);
+  });
+
+  it('shows the goal description and progress percentage', async () => {
+    mockFetchSequence({
+      '/api/creators/alice': baseCreator,
+      '/api/goals/alice': {
+        items: [goal({ title: 'Buy a new laptop', description: 'For editing videos', targetAmount: 500, currentAmount: 360 })],
+      },
+    });
+
+    await renderProfile('alice');
+
+    await waitFor(() => expect(screen.getByText('Buy a new laptop')).toBeInTheDocument());
+    expect(screen.getByText('For editing videos')).toBeInTheDocument();
+    expect(screen.getByText('360 / 500 XLM (72%)')).toBeInTheDocument();
   });
 
   it('renders no goal section when the creator has no active goals', async () => {

@@ -21,9 +21,15 @@ jest.mock("../../services/goalService", () => ({
   applyDonationToGoals: jest.fn(),
 }));
 
+jest.mock("../../services/donationNotifications", () => ({
+  notifyGoalsReached: jest.fn(),
+}));
+
 import prisma from "../../prisma";
 import { SubscriptionExecutor } from "../../services/subscriptionExecutor";
 import { notifySubscriptionRenewed } from "../../services/subscriptionNotifications";
+import { applyDonationToGoals } from "../../services/goalService";
+import { notifyGoalsReached } from "../../services/donationNotifications";
 
 const mockedPrisma = prisma as unknown as {
   subscription: { findMany: jest.Mock; update: jest.Mock };
@@ -31,6 +37,8 @@ const mockedPrisma = prisma as unknown as {
   $transaction: jest.Mock;
 };
 const mockedRenewed = notifySubscriptionRenewed as jest.Mock;
+const mockedApplyToGoals = applyDonationToGoals as jest.Mock;
+const mockedNotifyGoalsReached = notifyGoalsReached as jest.Mock;
 
 const subscription = {
   id: 4,
@@ -63,6 +71,8 @@ describe("SubscriptionExecutor donation indexing", () => {
       return Promise.all(callback);
     });
     mockedRenewed.mockResolvedValue(undefined);
+    mockedApplyToGoals.mockResolvedValue([]);
+    mockedNotifyGoalsReached.mockResolvedValue(undefined);
   });
 
   it("upserts a confirmed recurring charge by its on-chain identity", async () => {
@@ -88,5 +98,17 @@ describe("SubscriptionExecutor donation indexing", () => {
       }),
     });
     expect(mockedPrisma.$transaction).toHaveBeenCalledTimes(1);
+  });
+
+  it("notifies the creator about goals the recurring charge carried to their target", async () => {
+    const reachedGoal = { id: 3, creatorId: 7, title: "New mic", targetAmount: 100, currency: "XLM" };
+    mockedApplyToGoals.mockResolvedValue([reachedGoal]);
+    const executor = new SubscriptionExecutor() as any;
+    executor.submitCharge = jest.fn().mockResolvedValue("charge-tx");
+
+    await executor.charge(subscription);
+
+    expect(mockedApplyToGoals).toHaveBeenCalledWith(mockedPrisma, 7, "XLM", 2.5);
+    expect(mockedNotifyGoalsReached).toHaveBeenCalledWith([reachedGoal]);
   });
 });

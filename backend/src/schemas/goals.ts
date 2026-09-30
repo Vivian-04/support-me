@@ -23,6 +23,7 @@ export const listGoalsQuerySchema = z.object({
 export const createGoalSchema = z
   .object({
     title: z.string().max(80).optional(),
+    description: z.string().max(500).optional(),
     targetAmount: z.coerce.number().positive("targetAmount must be a positive number"),
     currency: assetCode.default("XLM"),
     recurring: z.boolean().optional().default(false),
@@ -36,6 +37,7 @@ export const createGoalSchema = z
 export const updateGoalSchema = z
   .object({
     title: z.string().max(80).nullable().optional(),
+    description: z.string().max(500).nullable().optional(),
     targetAmount: z.coerce.number().positive("targetAmount must be a positive number").optional(),
     status: goalStatusSchema.optional(),
     recurring: z.boolean().optional(),

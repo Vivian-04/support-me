@@ -66,6 +66,13 @@ export interface WelcomeEmailContext {
   dashboardUrl: string;
 }
 
+export interface GoalReachedEmailContext {
+  goalTitle?: string | null;
+  targetAmount: number;
+  currency: string;
+  dashboardUrl: string;
+}
+
 export type FailureReason = "allowance" | "balance" | "inactive" | "operational" | "unknown";
 
 export const formatAmount = (amount: number, token: string): string =>
@@ -401,6 +408,21 @@ export function donationConfirmationEmail(ctx: DonationConfirmationEmailContext)
     cta: { label: "Support again", url: "https://supportme.app" },
   });
   const text = [`Thanks for supporting ${ctx.creatorName}!`, "", `Your donation of ${amount} to ${ctx.creatorName} was recorded.`, ...(ctx.transactionHash ? [`Transaction: ${ctx.transactionHash}`] : [])].join("\n");
+  return { subject, html, text };
+}
+
+/** Notifies a creator that one of their donation goals reached its target. */
+export function goalReachedEmail(ctx: GoalReachedEmailContext): RenderedEmail {
+  const target = formatAmount(ctx.targetAmount, ctx.currency);
+  const goalName = ctx.goalTitle || `${target} goal`;
+  const subject = `You reached your goal: ${goalName}!`;
+  const html = renderBaseLayout({
+    title: subject,
+    heading: "Goal reached",
+    bodyHtml: `<p style="margin:0 0 12px;line-height:1.5;">Your supporters just carried <strong>${escapeHtml(goalName)}</strong> to its target of <strong>${escapeHtml(target)}</strong>.</p>`,
+    cta: { label: "View dashboard", url: ctx.dashboardUrl },
+  });
+  const text = ["Goal reached", "", `Your supporters just carried ${goalName} to its target of ${target}.`, "", `View dashboard: ${ctx.dashboardUrl}`].join("\n");
   return { subject, html, text };
 }
 

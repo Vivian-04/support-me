@@ -1,10 +1,14 @@
 import { Router } from "express";
-import { Donation, Prisma } from "@prisma/client";
+import { Donation, Goal, Prisma } from "@prisma/client";
 import prisma from "../prisma";
 import { asyncHandler } from "../middleware/asyncHandler";
 import { validate } from "../middleware/validate";
 import { createDonationSchema, listDonationsQuerySchema } from "../schemas/donations";
-import { notifyDonationConfirmation, notifyDonationReceived } from "../services/donationNotifications";
+import {
+  notifyDonationConfirmation,
+  notifyDonationReceived,
+  notifyGoalsReached,
+} from "../services/donationNotifications";
 import { applyDonationToGoals } from "../services/goalService";
 import { BadRequestError, NotFoundError } from "../errors/AppError";
 import { RateLimiter } from "../services/rateLimiter";
@@ -98,6 +102,7 @@ router.post(
     // original. Notifications must only fire once, on the real insert —
     // not on every retry a client makes with the same Idempotency-Key.
     let isNewDonation = false;
+    let reachedGoals: Goal[] = [];
 
     const record = async (client: Prisma.TransactionClient): Promise<Donation> => {
       // Cap per-request cleanup to a small batch size to avoid unbounded write load/lock contention
@@ -161,7 +166,7 @@ router.post(
       // Only reached for a genuinely new donation (the early returns above,
       // for a repeated idempotency key, skip this) — otherwise a retried
       // request would double-count the same donation against goal progress.
-      await applyDonationToGoals(client, creator.id, currency, amount);
+      reachedGoals = await applyDonationToGoals(client, creator.id, currency, amount);
       isNewDonation = true;
       return donation;
     };
@@ -221,6 +226,7 @@ router.post(
           (supporterResult.reason as Error).message
         );
       }
+      await notifyGoalsReached(reachedGoals);
     }
 
     return res.status(201).json(donation);

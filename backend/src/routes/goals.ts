@@ -45,7 +45,7 @@ router.post(
   validate({ params: usernameParamSchema, body: createGoalSchema }),
   asyncHandler(async (req: AuthRequest, res) => {
     const { username } = req.params;
-    const { title, targetAmount, currency, recurring, recurrenceInterval } = req.body;
+    const { title, description, targetAmount, currency, recurring, recurrenceInterval } = req.body;
 
     if (!req.user) {
       throw new UnauthorizedError("User not authenticated");
@@ -63,6 +63,7 @@ router.post(
       data: {
         creatorId: creator.id,
         title,
+        description,
         targetAmount,
         currency,
         recurring,
@@ -95,6 +96,7 @@ router.put(
 
     const updates = req.body as {
       title?: string | null;
+      description?: string | null;
       targetAmount?: number;
       status?: "ACTIVE" | "COMPLETED" | "EXPIRED";
       recurring?: boolean;
@@ -121,6 +123,30 @@ router.put(
     });
 
     return res.json(goal);
+  })
+);
+
+router.delete(
+  "/:id",
+  authMiddleware as any,
+  validate({ params: goalIdParamSchema }),
+  asyncHandler(async (req: AuthRequest, res) => {
+    if (!req.user) {
+      throw new UnauthorizedError("User not authenticated");
+    }
+
+    const { id } = req.params as unknown as { id: number };
+    const existing = await prisma.goal.findUnique({ where: { id }, include: { creator: true } });
+    if (!existing) {
+      throw new NotFoundError("Goal not found");
+    }
+    if (existing.creator.userId !== req.user.id) {
+      throw new UnauthorizedError("You can only delete your own goals");
+    }
+
+    await prisma.goal.delete({ where: { id } });
+
+    return res.status(204).send();
   })
 );
 

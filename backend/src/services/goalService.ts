@@ -34,33 +34,43 @@ import prisma from "../prisma";
  * multiple goals. Applying the full amount to every matching active goal
  * keeps each goal's meaning ("progress toward this specific target")
  * independent of how many other goals happen to exist alongside it.
+ *
+ * Returns the goals this donation carried to their target, so the caller can
+ * send goal-reached notifications once its transaction has committed.
  */
 export async function applyDonationToGoals(
   client: Prisma.TransactionClient,
   creatorId: number,
   currency: string,
   amount: number
-): Promise<void> {
+): Promise<Goal[]> {
   const matchingGoals = await client.goal.findMany({
     where: { creatorId, currency, status: "ACTIVE" },
   });
-  if (matchingGoals.length === 0) return;
+  if (matchingGoals.length === 0) return [];
 
-  await Promise.all(
+  const results = await Promise.all(
     matchingGoals.map((goal) => applyAmountToGoal(client, goal, amount))
   );
+  return results.filter((goal): goal is Goal => goal !== null);
 }
 
-/** Increments one goal's progress and flips it to COMPLETED once it reaches its target (non-recurring goals only — a recurring goal keeps accepting donations until its period resets, see goalResetScheduler.ts). */
+/**
+ * Increments one goal's progress and flips it to COMPLETED once it reaches its target (non-recurring goals only — a recurring goal keeps accepting donations until its period resets, see goalResetScheduler.ts).
+ * Returns the updated goal if this donation is the one that reached the target, otherwise null.
+ */
 async function applyAmountToGoal(
   client: Prisma.TransactionClient,
   goal: Goal,
   amount: number
-): Promise<void> {
+): Promise<Goal | null> {
   const newAmount = goal.currentAmount + amount;
   const reachedTarget = newAmount >= goal.targetAmount;
+  // A recurring goal stays ACTIVE past its target, so only the donation that
+  // crosses it counts as reaching it — later ones in the same period don't.
+  const justReached = reachedTarget && (!goal.recurring || goal.currentAmount < goal.targetAmount);
 
-  await client.goal.update({
+  const updated = await client.goal.update({
     where: { id: goal.id },
     data: {
       currentAmount: newAmount,
@@ -70,6 +80,8 @@ async function applyAmountToGoal(
       ...(reachedTarget && !goal.recurring ? { status: "COMPLETED" as const } : {}),
     },
   });
+
+  return justReached ? updated : null;
 }
 
 const INTERVAL_MS: Record<RecurrenceInterval, number> = {

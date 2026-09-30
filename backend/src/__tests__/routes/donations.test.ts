@@ -294,6 +294,27 @@ describe("POST /api/donations", () => {
     });
   });
 
+  it("emails the creator when a donation carries a goal to its target", async () => {
+    const creator = { id: 7, username: "bob", user: { email: "bob@example.com" } };
+    mockedPrisma.creator.findUnique.mockResolvedValue(creator);
+    mockedPrisma.donation.create.mockResolvedValue({ id: 1, creatorId: 7, amount: 10, currency: "XLM" });
+    const goal = { id: 2, creatorId: 7, title: "New mic", currency: "XLM", currentAmount: 95, targetAmount: 100, recurring: false, status: "ACTIVE" };
+    mockedPrisma.goal.findMany.mockResolvedValue([goal]);
+    mockedPrisma.goal.update.mockResolvedValue({ ...goal, currentAmount: 105, status: "COMPLETED" });
+
+    const res = await request(app).post("/api/donations").set("Idempotency-Key", "donation-goal-reached").send({
+      creatorUsername: "bob",
+      senderAddress: "GA7D5LDGFABXNYEO6LZVMTWK5JWEPTODCLYZ7TG4XDZRKKXP6OS5K5JW",
+      amount: 10,
+      currency: "XLM",
+    });
+
+    expect(res.status).toBe(201);
+    expect(mockedSendEmail).toHaveBeenCalledWith(
+      expect.objectContaining({ to: "bob@example.com", subject: "You reached your goal: New mic!" })
+    );
+  });
+
   // Issue #18: USDT is just another asset code — createDonationSchema's
   // `currency` field isn't an enum of known assets, so nothing here should
   // need special-casing for a new one to work end-to-end.

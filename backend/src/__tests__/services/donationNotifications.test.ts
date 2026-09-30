@@ -10,10 +10,14 @@ jest.mock("../../services/email/mailer", () => ({
   sendEmail: jest.fn().mockResolvedValue(undefined),
 }));
 
-import { Donation, Prisma } from "@prisma/client";
+import { Donation, Goal, Prisma } from "@prisma/client";
 import prisma from "../../prisma";
 import { sendEmail } from "../../services/email/mailer";
-import { notifyDonationConfirmation, notifyDonationReceived } from "../../services/donationNotifications";
+import {
+  notifyDonationConfirmation,
+  notifyDonationReceived,
+  notifyGoalsReached,
+} from "../../services/donationNotifications";
 
 const mockedPrisma = prisma as unknown as {
   creator: { findUnique: jest.Mock; findFirst: jest.Mock };
@@ -176,5 +180,56 @@ describe("notifyDonationConfirmation (#17)", () => {
 
     expect(sent).toBe(false);
     expect(mockedSendEmail).not.toHaveBeenCalled();
+  });
+});
+
+describe("notifyGoalsReached", () => {
+  const GOAL: Goal = {
+    id: 3,
+    creatorId: 7,
+    title: "Buy a new laptop",
+    description: null,
+    targetAmount: 500,
+    currentAmount: 510,
+    currency: "XLM",
+    status: "COMPLETED",
+    recurring: false,
+    recurrenceInterval: null,
+    currentPeriodEnd: null,
+    createdAt: new Date("2026-08-01T00:00:00.000Z"),
+    updatedAt: new Date("2026-08-01T00:00:00.000Z"),
+  };
+
+  it("emails the creator for each goal that reached its target", async () => {
+    mockedPrisma.creator.findUnique.mockResolvedValue({ id: 7, user: { email: "bob@example.com" } });
+
+    await notifyGoalsReached([GOAL]);
+
+    expect(mockedPrisma.creator.findUnique).toHaveBeenCalledWith({
+      where: { id: 7 },
+      include: { user: true },
+    });
+    expect(mockedSendEmail).toHaveBeenCalledTimes(1);
+    const message = mockedSendEmail.mock.calls[0][0];
+    expect(message.to).toBe("bob@example.com");
+    expect(message.subject).toBe("You reached your goal: Buy a new laptop!");
+  });
+
+  it("skips creators without an email address", async () => {
+    mockedPrisma.creator.findUnique.mockResolvedValue({ id: 7, user: { email: null } });
+
+    await notifyGoalsReached([GOAL]);
+
+    expect(mockedSendEmail).not.toHaveBeenCalled();
+  });
+
+  it("does not throw when the email provider fails", async () => {
+    mockedPrisma.creator.findUnique.mockResolvedValue({ id: 7, user: { email: "bob@example.com" } });
+    mockedSendEmail.mockRejectedValue(new Error("provider down"));
+    const consoleError = jest.spyOn(console, "error").mockImplementation(() => {});
+
+    await expect(notifyGoalsReached([GOAL])).resolves.toBeUndefined();
+
+    consoleError.mockRestore();
   });
 });

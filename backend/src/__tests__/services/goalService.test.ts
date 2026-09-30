@@ -89,6 +89,30 @@ describe("applyDonationToGoals", () => {
     });
   });
 
+  it("returns only the goals this donation carried to their target", async () => {
+    mockedPrisma.goal.findMany.mockResolvedValue([
+      { id: 1, creatorId: 1, currency: "XLM", currentAmount: 95, targetAmount: 100, recurring: false, status: "ACTIVE" },
+      { id: 2, creatorId: 1, currency: "XLM", currentAmount: 0, targetAmount: 100, recurring: false, status: "ACTIVE" },
+    ]);
+    mockedPrisma.goal.update.mockImplementation(async ({ where, data }) => ({ id: where.id, ...data }));
+
+    const reached = await applyDonationToGoals(fakeTransactionClient(), 1, "XLM", 10);
+
+    expect(reached).toEqual([{ id: 1, currentAmount: 105, status: "COMPLETED" }]);
+  });
+
+  it("reports a recurring goal as reached only on the donation that crosses its target", async () => {
+    mockedPrisma.goal.findMany.mockResolvedValue([
+      { id: 1, creatorId: 1, currency: "XLM", currentAmount: 95, targetAmount: 100, recurring: true, status: "ACTIVE" },
+      { id: 2, creatorId: 1, currency: "XLM", currentAmount: 120, targetAmount: 100, recurring: true, status: "ACTIVE" },
+    ]);
+    mockedPrisma.goal.update.mockImplementation(async ({ where, data }) => ({ id: where.id, ...data }));
+
+    const reached = await applyDonationToGoals(fakeTransactionClient(), 1, "XLM", 10);
+
+    expect(reached).toEqual([{ id: 1, currentAmount: 105 }]);
+  });
+
   it("only touches goals denominated in the donated currency", async () => {
     // findMany is already filtered by currency in the query itself, but this
     // asserts the call shape so a regression (e.g. dropping the `currency`

@@ -3,6 +3,7 @@ import {
   subscriptionRenewedEmail,
   subscriptionPaymentFailedEmail,
   welcomeEmail,
+  goalReachedEmail,
   classifyFailure,
   describeInterval,
   formatAmount,
@@ -156,6 +157,30 @@ describe("Email Templates", () => {
       expect(email.subject).toContain("Welcome to SupportMe, @new_creator!");
       expect(email.html).toContain("https://supportme.app/new_creator");
       expect(email.html).toContain("Go to Creator Dashboard");
+    });
+  });
+
+  describe("goalReachedEmail", () => {
+    it("names the goal and its target", () => {
+      const email = goalReachedEmail({
+        goalTitle: "Buy a new laptop",
+        targetAmount: 500,
+        currency: "XLM",
+        dashboardUrl: "https://supportme.app/app/dashboard",
+      });
+
+      expect(email.subject).toBe("You reached your goal: Buy a new laptop!");
+      expect(email.html).toContain("500 XLM");
+      expect(email.text).toContain("View dashboard: https://supportme.app/app/dashboard");
+    });
+
+    it("falls back to the target amount for an untitled goal and escapes the title", () => {
+      expect(
+        goalReachedEmail({ targetAmount: 100, currency: "USDC", dashboardUrl: "https://x" }).subject
+      ).toBe("You reached your goal: 100 USDC goal!");
+      expect(
+        goalReachedEmail({ goalTitle: "<b>mic</b>", targetAmount: 1, currency: "XLM", dashboardUrl: "https://x" }).html
+      ).not.toContain("<b>mic</b>");
     });
   });
 

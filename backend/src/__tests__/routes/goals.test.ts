@@ -9,6 +9,7 @@ jest.mock("../../prisma", () => ({
       findUnique: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      delete: jest.fn(),
     },
   },
 }));
@@ -20,7 +21,13 @@ import { generateToken } from "../../middleware/auth";
 
 const mockedPrisma = prisma as unknown as {
   creator: { findUnique: jest.Mock };
-  goal: { findMany: jest.Mock; findUnique: jest.Mock; create: jest.Mock; update: jest.Mock };
+  goal: {
+    findMany: jest.Mock;
+    findUnique: jest.Mock;
+    create: jest.Mock;
+    update: jest.Mock;
+    delete: jest.Mock;
+  };
 };
 
 describe("GET /api/goals/:username", () => {
@@ -138,6 +145,31 @@ describe("POST /api/goals/:username", () => {
         currentPeriodEnd: null,
       },
     });
+  });
+
+  it("stores an optional description with the goal", async () => {
+    mockedPrisma.creator.findUnique.mockResolvedValue({ id: 7, userId: 1, username: "bob" });
+    mockedPrisma.goal.create.mockResolvedValue({ id: 4 });
+
+    const res = await request(app)
+      .post("/api/goals/bob")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ title: "Buy a new laptop", description: "For editing videos", targetAmount: 500 });
+
+    expect(res.status).toBe(201);
+    expect(mockedPrisma.goal.create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ title: "Buy a new laptop", description: "For editing videos" }),
+    });
+  });
+
+  it("rejects a description longer than 500 characters", async () => {
+    const res = await request(app)
+      .post("/api/goals/bob")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ targetAmount: 100, description: "x".repeat(501) });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("VALIDATION_ERROR");
   });
 
   it("creates a goal denominated in USDT (issue #18)", async () => {
@@ -264,5 +296,62 @@ describe("PUT /api/goals/:id", () => {
       where: { id: 1 },
       data: { recurring: false, currentPeriodEnd: null },
     });
+  });
+
+  it("lets the owner edit a goal's title, description and target", async () => {
+    mockedPrisma.goal.findUnique.mockResolvedValue({
+      id: 1,
+      creator: { userId: 1 },
+      recurring: false,
+      recurrenceInterval: null,
+    });
+    mockedPrisma.goal.update.mockResolvedValue({ id: 1 });
+
+    const res = await request(app)
+      .put("/api/goals/1")
+      .set("Authorization", `Bearer ${token}`)
+      .send({ title: "Buy a new laptop", description: null, targetAmount: 750 });
+
+    expect(res.status).toBe(200);
+    expect(mockedPrisma.goal.update).toHaveBeenCalledWith({
+      where: { id: 1 },
+      data: { title: "Buy a new laptop", description: null, targetAmount: 750 },
+    });
+  });
+});
+
+describe("DELETE /api/goals/:id", () => {
+  const token = generateToken(1, "GUSERADDRESS");
+
+  it("rejects requests without an auth token", async () => {
+    const res = await request(app).delete("/api/goals/1");
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 when the goal does not exist", async () => {
+    mockedPrisma.goal.findUnique.mockResolvedValue(null);
+
+    const res = await request(app).delete("/api/goals/1").set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(404);
+  });
+
+  it("rejects deleting a goal that belongs to someone else's profile", async () => {
+    mockedPrisma.goal.findUnique.mockResolvedValue({ id: 1, creator: { userId: 2 } });
+
+    const res = await request(app).delete("/api/goals/1").set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(401);
+    expect(mockedPrisma.goal.delete).not.toHaveBeenCalled();
+  });
+
+  it("allows the owner to delete a goal", async () => {
+    mockedPrisma.goal.findUnique.mockResolvedValue({ id: 1, creator: { userId: 1 } });
+    mockedPrisma.goal.delete.mockResolvedValue({ id: 1 });
+
+    const res = await request(app).delete("/api/goals/1").set("Authorization", `Bearer ${token}`);
+
+    expect(res.status).toBe(204);
+    expect(mockedPrisma.goal.delete).toHaveBeenCalledWith({ where: { id: 1 } });
   });
 });

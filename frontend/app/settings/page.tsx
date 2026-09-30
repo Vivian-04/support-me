@@ -21,6 +21,7 @@ import { AccountDataSection } from '@/components/AccountDataSection';
 interface Goal {
   id: number;
   title: string | null;
+  description: string | null;
   targetAmount: number;
   currentAmount: number;
   currency: string;
@@ -29,7 +30,21 @@ interface Goal {
   recurrenceInterval: 'WEEKLY' | 'MONTHLY' | null;
 }
 
+// Form state for the goal currently being edited in place.
+interface GoalDraft {
+  id: number;
+  title: string;
+  description: string;
+  targetAmount: string;
+}
+
 const GOAL_CURRENCIES = ['XLM', 'USDC', 'USDT'];
+
+// Shared by the create and edit forms so both reject the same input.
+const parseGoalTarget = (value: string): number | null => {
+  const target = Number(value);
+  return value.trim() && Number.isFinite(target) && target > 0 ? target : null;
+};
 
 export default function SettingsPage() {
   const { user, token } = useAuth();
@@ -52,10 +67,13 @@ export default function SettingsPage() {
   const [goalsLoading, setGoalsLoading] = useState(true);
   const [creatingGoal, setCreatingGoal] = useState(false);
   const [newGoalTitle, setNewGoalTitle] = useState('');
+  const [newGoalDescription, setNewGoalDescription] = useState('');
   const [newGoalTarget, setNewGoalTarget] = useState('');
   const [newGoalCurrency, setNewGoalCurrency] = useState('XLM');
   const [newGoalRecurring, setNewGoalRecurring] = useState(false);
   const [newGoalInterval, setNewGoalInterval] = useState<'WEEKLY' | 'MONTHLY'>('MONTHLY');
+  const [goalDraft, setGoalDraft] = useState<GoalDraft | null>(null);
+  const [savingGoal, setSavingGoal] = useState(false);
 
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -95,8 +113,8 @@ export default function SettingsPage() {
   const handleCreateGoal = async () => {
     if (!creator) return;
 
-    const target = Number(newGoalTarget);
-    if (!newGoalTarget.trim() || !Number.isFinite(target) || target <= 0) {
+    const target = parseGoalTarget(newGoalTarget);
+    if (target === null) {
       notify.error('Enter a positive target amount for the goal.');
       return;
     }
@@ -115,6 +133,7 @@ export default function SettingsPage() {
         },
         body: JSON.stringify({
           title: newGoalTitle.trim() || undefined,
+          description: newGoalDescription.trim() || undefined,
           targetAmount: target,
           currency: newGoalCurrency,
           recurring: newGoalRecurring,
@@ -128,6 +147,7 @@ export default function SettingsPage() {
       const created: Goal = await res.json();
       setGoals((prev) => [...prev, created]);
       setNewGoalTitle('');
+      setNewGoalDescription('');
       setNewGoalTarget('');
       setNewGoalRecurring(false);
       notify.success('Goal created.');
@@ -138,28 +158,70 @@ export default function SettingsPage() {
     }
   };
 
-  // There's no delete endpoint by design — a goal's lifecycle is
-  // ACTIVE/COMPLETED/EXPIRED (see prisma/schema.prisma's GoalStatus), so
-  // "ending" a goal early means marking it EXPIRED, the same terminal state
-  // a goal that's simply abandoned would end up in.
-  const handleEndGoal = async (goalId: number) => {
+  const startEditingGoal = (goal: Goal) => {
+    setGoalDraft({
+      id: goal.id,
+      title: goal.title || '',
+      description: goal.description || '',
+      targetAmount: String(goal.targetAmount),
+    });
+  };
+
+  const handleUpdateGoal = async () => {
+    if (!goalDraft) return;
+
+    const target = parseGoalTarget(goalDraft.targetAmount);
+    if (target === null) {
+      notify.error('Enter a positive target amount for the goal.');
+      return;
+    }
+
+    setSavingGoal(true);
     try {
-      const res = await fetch(`${API_URL}/api/goals/${goalId}`, {
+      const res = await fetch(`${API_URL}/api/goals/${goalDraft.id}`, {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ status: 'EXPIRED' }),
+        // null (not undefined) so emptying a field clears it server-side.
+        body: JSON.stringify({
+          title: goalDraft.title.trim() || null,
+          description: goalDraft.description.trim() || null,
+          targetAmount: target,
+        }),
       });
       if (!res.ok) {
         const body = await res.json().catch(() => ({}));
-        throw new Error(body.error || 'Failed to end goal');
+        throw new Error(body.error || 'Failed to update goal');
       }
-      setGoals((prev) => prev.filter((g) => g.id !== goalId));
-      notify.success('Goal ended.');
+      const updated: Goal = await res.json();
+      setGoals((prev) => prev.map((g) => (g.id === updated.id ? updated : g)));
+      setGoalDraft(null);
+      notify.success('Goal updated.');
     } catch (err) {
-      notify.error('Could not end goal', err);
+      notify.error('Could not update goal', err);
+    } finally {
+      setSavingGoal(false);
+    }
+  };
+
+  const handleDeleteGoal = async (goal: Goal) => {
+    if (!window.confirm(`Delete "${goal.title || `${goal.currency} goal`}"? This can't be undone.`)) return;
+
+    try {
+      const res = await fetch(`${API_URL}/api/goals/${goal.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || 'Failed to delete goal');
+      }
+      setGoals((prev) => prev.filter((g) => g.id !== goal.id));
+      notify.success('Goal deleted.');
+    } catch (err) {
+      notify.error('Could not delete goal', err);
     }
   };
 
@@ -514,7 +576,7 @@ export default function SettingsPage() {
               <p className="text-sm text-muted font-medium">
                 Track one or more donation targets on your profile. Each goal is
                 denominated in a single asset and, if recurring, resets its progress
-                on schedule. Created/ended goals apply immediately — no need to hit
+                on schedule. Goal changes apply immediately — no need to hit
                 Save changes above.
               </p>
 
@@ -523,6 +585,70 @@ export default function SettingsPage() {
               ) : goals.length > 0 ? (
                 <ul className="space-y-3">
                   {goals.map((g) => {
+                    if (goalDraft?.id === g.id) {
+                      return (
+                        <li key={g.id} className="card-brutal p-4 space-y-3">
+                          <div>
+                            <label htmlFor="editGoalTitle" className="block text-xs font-bold text-ink mb-1.5">
+                              Title (optional)
+                            </label>
+                            <input
+                              id="editGoalTitle"
+                              type="text"
+                              value={goalDraft.title}
+                              onChange={(e) => setGoalDraft({ ...goalDraft, title: e.target.value })}
+                              maxLength={80}
+                              className="input-brutal"
+                            />
+                          </div>
+                          <div>
+                            <label htmlFor="editGoalDescription" className="block text-xs font-bold text-ink mb-1.5">
+                              Description (optional)
+                            </label>
+                            <textarea
+                              id="editGoalDescription"
+                              value={goalDraft.description}
+                              onChange={(e) => setGoalDraft({ ...goalDraft, description: e.target.value })}
+                              maxLength={500}
+                              rows={2}
+                              className="input-brutal"
+                            />
+                          </div>
+                          <div>
+                            <label htmlFor="editGoalTarget" className="block text-xs font-bold text-ink mb-1.5">
+                              Target amount ({g.currency})
+                            </label>
+                            <input
+                              id="editGoalTarget"
+                              type="number"
+                              min={0.01}
+                              step="any"
+                              value={goalDraft.targetAmount}
+                              onChange={(e) => setGoalDraft({ ...goalDraft, targetAmount: e.target.value })}
+                              className="input-brutal"
+                            />
+                          </div>
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={handleUpdateGoal}
+                              disabled={savingGoal}
+                              className="btn-brutal btn-brutal-primary text-xs px-3 py-1.5"
+                            >
+                              {savingGoal ? 'Saving…' : 'Save goal'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setGoalDraft(null)}
+                              className="btn-brutal btn-brutal-white text-xs px-3 py-1.5"
+                            >
+                              Cancel
+                            </button>
+                          </div>
+                        </li>
+                      );
+                    }
+
                     const pct = Math.min(100, (g.currentAmount / g.targetAmount) * 100);
                     return (
                       <li key={g.id} className="card-brutal p-4">
@@ -536,17 +662,29 @@ export default function SettingsPage() {
                                 </span>
                               )}
                             </p>
+                            {g.description && (
+                              <p className="text-sm text-ink/80 font-medium">{g.description}</p>
+                            )}
                             <p className="text-sm text-muted font-medium">
                               {g.currentAmount.toFixed(0)} / {g.targetAmount.toFixed(0)} {g.currency} ({pct.toFixed(0)}%)
                             </p>
                           </div>
-                          <button
-                            type="button"
-                            onClick={() => handleEndGoal(g.id)}
-                            className="btn-brutal btn-brutal-white text-xs px-3 py-1.5 shrink-0"
-                          >
-                            End goal
-                          </button>
+                          <div className="flex gap-2 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => startEditingGoal(g)}
+                              className="btn-brutal btn-brutal-white text-xs px-3 py-1.5"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteGoal(g)}
+                              className="btn-brutal btn-brutal-white text-xs px-3 py-1.5"
+                            >
+                              Delete
+                            </button>
+                          </div>
                         </div>
                       </li>
                     );
@@ -569,6 +707,20 @@ export default function SettingsPage() {
                     onChange={(e) => setNewGoalTitle(e.target.value)}
                     maxLength={80}
                     placeholder="e.g. New microphone"
+                    className="input-brutal"
+                  />
+                </div>
+                <div>
+                  <label htmlFor="newGoalDescription" className="block text-xs font-bold text-ink mb-1.5">
+                    Description (optional)
+                  </label>
+                  <textarea
+                    id="newGoalDescription"
+                    value={newGoalDescription}
+                    onChange={(e) => setNewGoalDescription(e.target.value)}
+                    maxLength={500}
+                    rows={2}
+                    placeholder="What will the funds go toward?"
                     className="input-brutal"
                   />
                 </div>

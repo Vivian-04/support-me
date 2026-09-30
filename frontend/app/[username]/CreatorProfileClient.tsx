@@ -60,6 +60,7 @@ export const LARGE_DONATION_THRESHOLD = 1000;
 interface Goal {
   id: number;
   title: string | null;
+  description: string | null;
   targetAmount: number;
   currentAmount: number;
   currency: string;
@@ -640,9 +641,12 @@ function CreatorProfileView({ username, locale, onLocaleChange }: CreatorProfile
                         )}
                       </span>
                       <span className="shrink-0">
-                        {g.currentAmount.toFixed(0)} / {g.targetAmount.toFixed(0)} {g.currency}
+                        {g.currentAmount.toFixed(0)} / {g.targetAmount.toFixed(0)} {g.currency} ({pct.toFixed(0)}%)
                       </span>
                     </div>
+                    {g.description && (
+                      <p className="text-sm text-muted font-medium mb-2">{g.description}</p>
+                    )}
                     <div
                       className="h-3 border-2 border-ink rounded-full overflow-hidden bg-accent-bg"
                       role="progressbar"

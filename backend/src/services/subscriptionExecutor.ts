@@ -15,6 +15,7 @@ import {
 import { withSorobanRpcServer } from "./sorobanRpc";
 import { executorHealth } from "./executorHealth";
 import { applyDonationToGoals } from "./goalService";
+import { notifyGoalsReached } from "./donationNotifications";
 import { log } from "../lib/logger";
 import * as Sentry from "@sentry/node";
 
@@ -150,7 +151,7 @@ export class SubscriptionExecutor {
 
     const nextChargeAt = new Date(Date.now() + subscription.intervalSecs * 1000);
     const onChainEventId = `${hash}:0:0`;
-    await prisma.$transaction(async (client) => {
+    const reachedGoals = await prisma.$transaction(async (client) => {
       await client.donation.upsert({
         where: {
           transactionHash_operationIndex_eventIndex: {
@@ -186,7 +187,7 @@ export class SubscriptionExecutor {
       });
       // A recurring donation applies to goal progress the same way a
       // one-off donation does (see goalService.ts's applyDonationToGoals).
-      await applyDonationToGoals(client, subscription.creatorId, subscription.token, toAmount(subscription.amount));
+      return applyDonationToGoals(client, subscription.creatorId, subscription.token, toAmount(subscription.amount));
     });
     executorHealth.recordCharge(subscription.id, "success");
 
@@ -210,6 +211,7 @@ export class SubscriptionExecutor {
         error: (error as Error).message,
       });
     }
+    await notifyGoalsReached(reachedGoals);
   }
 
   private async recordFailure(subscription: Subscription, message: string): Promise<void> {

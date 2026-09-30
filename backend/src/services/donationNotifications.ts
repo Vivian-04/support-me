@@ -1,7 +1,7 @@
-import { Donation } from "@prisma/client";
+import { Donation, Goal } from "@prisma/client";
 import prisma from "../prisma";
 import { sendEmail } from "./email/mailer";
-import { donationConfirmationEmail } from "./email/templates";
+import { donationConfirmationEmail, goalReachedEmail } from "./email/templates";
 import { emailService } from "./email/emailService";
 import { toAmount } from "../lib/money";
 
@@ -74,4 +74,39 @@ export async function notifyDonationConfirmation(donation: Donation): Promise<bo
     }),
   });
   return true;
+}
+
+/**
+ * Emails the creator about each goal a donation just carried to its target
+ * (the goals applyDonationToGoals returns). Never throws: like the other
+ * donation notices, a mail failure must not make a recorded donation look
+ * failed, so each goal's failure is logged individually instead.
+ */
+export async function notifyGoalsReached(goals: Goal[]): Promise<void> {
+  await Promise.all(
+    goals.map(async (goal) => {
+      try {
+        const creator = await prisma.creator.findUnique({
+          where: { id: goal.creatorId },
+          include: { user: true },
+        });
+        if (!creator?.user.email) return;
+
+        await sendEmail({
+          to: creator.user.email,
+          ...goalReachedEmail({
+            goalTitle: goal.title,
+            targetAmount: goal.targetAmount,
+            currency: goal.currency,
+            dashboardUrl: dashboardUrl(),
+          }),
+        });
+      } catch (error) {
+        console.error(
+          `notifyGoalsReached: failed to send notice for goal ${goal.id}:`,
+          (error as Error).message
+        );
+      }
+    })
+  );
 }
