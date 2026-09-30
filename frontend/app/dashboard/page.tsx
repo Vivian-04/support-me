@@ -15,6 +15,7 @@ import { DonationHistorySkeleton } from '@/components/DonationHistorySkeleton';
 import { TipChart } from '@/components/TipChart';
 import { ShareCard } from '@/components/ShareCard';
 import { ShareModal } from '@/components/ShareModal';
+import { QrCodeCard } from '@/components/QrCodeCard';
 import { usePrices } from '@/lib/usePrices';
 import { formatUsd } from '@/lib/prices';
 import { API_URL } from '@/lib/api';
@@ -413,6 +414,10 @@ export default function DashboardPage() {
               </div>
             </>
           )}
+
+          <div className="mb-8">
+            <QrCodeCard creator={creator} />
+          </div>
 
           {/* Recent Activity — tips received and cash-outs, newest first */}
           <div className="card-brutal p-4 sm:p-6 overflow-x-auto">

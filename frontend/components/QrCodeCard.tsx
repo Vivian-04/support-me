@@ -19,6 +19,11 @@ const QR_SIZE = 220;
 // downloaded PNG is crisp when printed or scaled up rather than a 1:1 copy
 // of the small on-screen preview.
 const DOWNLOAD_SIZE = 1024;
+// Pure black on white for maximum scanner contrast, plus the 4-module quiet
+// zone the QR spec requires — baked into the code itself so downloaded
+// images stay scannable wherever they're placed, not just inside this card.
+const QR_COLORS = { fgColor: '#000000', bgColor: '#FFFFFF' } as const;
+const QR_MARGIN = 4;
 
 function triggerDownload(href: string, filename: string) {
   const a = document.createElement('a');
@@ -29,15 +34,27 @@ function triggerDownload(href: string, filename: string) {
   a.remove();
 }
 
+function canvasToPngFile(canvas: HTMLCanvasElement, filename: string): Promise<File | null> {
+  return new Promise((resolve) => {
+    canvas.toBlob(
+      (blob) => resolve(blob ? new File([blob], filename, { type: 'image/png' }) : null),
+      'image/png'
+    );
+  });
+}
+
 /**
  * A creator's public donation page as a scannable QR code, with PNG and SVG
- * download options. Always reads `creator.username` from the live prop
- * rather than capturing it once, so it stays correct if the creator renames
- * themselves without needing to remount this component.
+ * download options and a native share (falling back to copying the link).
+ * Always reads `creator.username` from the live prop rather than capturing
+ * it once, so it stays correct if the creator renames themselves without
+ * needing to remount this component.
  */
 export function QrCodeCard({ creator }: QrCodeCardProps) {
   const downloadCanvasRef = useRef<HTMLCanvasElement>(null);
   const profileUrl = `${SITE_URL}/${creator.username}`;
+  const pngFilename = `${creator.username}-supportme-qr.png`;
+  const qrLabel = `QR code linking to @${creator.username}'s SupportMe donation page`;
 
   const handleDownloadPng = () => {
     const canvas = downloadCanvasRef.current;
@@ -48,7 +65,7 @@ export function QrCodeCard({ creator }: QrCodeCardProps) {
         return;
       }
       const url = URL.createObjectURL(blob);
-      triggerDownload(url, `${creator.username}-supportme-qr.png`);
+      triggerDownload(url, pngFilename);
       URL.revokeObjectURL(url);
     }, 'image/png');
   };
@@ -69,6 +86,44 @@ export function QrCodeCard({ creator }: QrCodeCardProps) {
     URL.revokeObjectURL(url);
   };
 
+  const copyProfileLink = async () => {
+    try {
+      await navigator.clipboard.writeText(profileUrl);
+      notify.success('Profile link copied to clipboard');
+    } catch (err) {
+      notify.error('Could not copy link', err);
+    }
+  };
+
+  // Shares the QR image itself where the browser supports sharing files,
+  // otherwise just the link; without the Web Share API at all, copies the
+  // link instead.
+  const handleShare = async () => {
+    if (typeof navigator.share !== 'function') {
+      await copyProfileLink();
+      return;
+    }
+
+    const shareData: ShareData = {
+      title: 'SupportMe',
+      text: `Support @${creator.username} on SupportMe`,
+      url: profileUrl,
+    };
+    const canvas = downloadCanvasRef.current;
+    const file = canvas ? await canvasToPngFile(canvas, pngFilename) : null;
+    if (file && navigator.canShare?.({ files: [file] })) {
+      shareData.files = [file];
+    }
+
+    try {
+      await navigator.share(shareData);
+    } catch (err) {
+      // The user dismissing the share sheet isn't a failure worth surfacing.
+      if ((err as Error).name === 'AbortError') return;
+      await copyProfileLink();
+    }
+  };
+
   return (
     <section className="card-brutal p-8 space-y-4">
       <div>
@@ -79,8 +134,18 @@ export function QrCodeCard({ creator }: QrCodeCardProps) {
       </div>
 
       <div className="flex flex-col sm:flex-row items-center gap-6">
-        <div className="border-2 border-ink rounded p-3 bg-white shrink-0">
-          <QRCodeSVG id="qr-code-card-svg" value={profileUrl} size={QR_SIZE} level="M" includeMargin={false} />
+        <div className="border-2 border-ink rounded bg-white shrink-0">
+          <QRCodeSVG
+            id="qr-code-card-svg"
+            value={profileUrl}
+            size={QR_SIZE}
+            level="M"
+            marginSize={QR_MARGIN}
+            {...QR_COLORS}
+            title={qrLabel}
+            role="img"
+            aria-label={qrLabel}
+          />
         </div>
 
         <div className="flex-1 min-w-0 space-y-3">
@@ -92,14 +157,24 @@ export function QrCodeCard({ creator }: QrCodeCardProps) {
             <button type="button" onClick={handleDownloadSvg} className="btn-brutal btn-brutal-white">
               Download SVG
             </button>
+            <button type="button" onClick={handleShare} className="btn-brutal btn-brutal-white">
+              Share
+            </button>
           </div>
         </div>
       </div>
 
-      {/* Offscreen, higher-resolution source for the PNG download only; the
-          visible QR code above is the QRCodeSVG. */}
+      {/* Offscreen, higher-resolution source for the PNG download and the
+          shared image only; the visible QR code above is the QRCodeSVG. */}
       <div className="hidden">
-        <QRCodeCanvas ref={downloadCanvasRef} value={profileUrl} size={DOWNLOAD_SIZE} level="M" includeMargin={false} />
+        <QRCodeCanvas
+          ref={downloadCanvasRef}
+          value={profileUrl}
+          size={DOWNLOAD_SIZE}
+          level="M"
+          marginSize={QR_MARGIN}
+          {...QR_COLORS}
+        />
       </div>
     </section>
   );

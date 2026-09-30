@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { forwardRef } from 'react';
-import { render, screen, fireEvent } from '@testing-library/react';
+import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import { QrCodeCard } from '@/components/QrCodeCard';
 import { notify } from '@/lib/notify';
 
@@ -39,8 +39,8 @@ vi.mock('qrcode.react', () => {
 
   return {
     QRCodeCanvas: MockQRCodeCanvas,
-    QRCodeSVG: ({ id, value }: { id: string; value: string }) => (
-      <svg id={id} data-testid="qr-svg" data-value={value} />
+    QRCodeSVG: ({ id, value, role, 'aria-label': ariaLabel }: Record<string, string>) => (
+      <svg id={id} role={role} aria-label={ariaLabel} data-testid="qr-svg" data-value={value} />
     ),
   };
 });
@@ -153,5 +153,82 @@ describe('QrCodeCard', () => {
 
     expect(notify.error).toHaveBeenCalledWith('Could not generate the QR code image.');
     expect(anchorClickSpy).not.toHaveBeenCalled();
+  });
+
+  it('describes the QR code purpose to assistive technology', () => {
+    render(<QrCodeCard creator={creator} />);
+
+    expect(
+      screen.getByRole('img', { name: "QR code linking to @alice's SupportMe donation page" })
+    ).toBeInTheDocument();
+  });
+
+  describe('Share', () => {
+    const pngBlob = new Blob(['fake-png'], { type: 'image/png' });
+
+    beforeEach(() => {
+      vi.mocked(notify.error).mockClear();
+      vi.mocked(notify.success).mockClear();
+      toBlobMock.mockImplementation((cb: (b: Blob) => void) => cb(pngBlob));
+    });
+
+    it('shares the QR image and link through the native share sheet when files are supported', async () => {
+      const share = vi.fn().mockResolvedValue(undefined);
+      vi.stubGlobal('navigator', { share, canShare: vi.fn(() => true) });
+
+      render(<QrCodeCard creator={creator} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Share' }));
+
+      await waitFor(() => expect(share).toHaveBeenCalledOnce());
+      const data = share.mock.calls[0][0] as ShareData;
+      expect(data.url).toBe('https://support-mee.vercel.app/alice');
+      expect(data.files?.[0].name).toBe('alice-supportme-qr.png');
+    });
+
+    it('shares just the link when the browser cannot share files', async () => {
+      const share = vi.fn().mockResolvedValue(undefined);
+      vi.stubGlobal('navigator', { share, canShare: vi.fn(() => false) });
+
+      render(<QrCodeCard creator={creator} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Share' }));
+
+      await waitFor(() => expect(share).toHaveBeenCalledOnce());
+      expect(share.mock.calls[0][0]).not.toHaveProperty('files');
+    });
+
+    it('copies the link when the Web Share API is unavailable', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      vi.stubGlobal('navigator', { clipboard: { writeText } });
+
+      render(<QrCodeCard creator={creator} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Share' }));
+
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith('https://support-mee.vercel.app/alice'));
+      expect(notify.success).toHaveBeenCalledWith('Profile link copied to clipboard');
+    });
+
+    it('stays silent when the user dismisses the share sheet', async () => {
+      const writeText = vi.fn();
+      const share = vi.fn().mockRejectedValue(Object.assign(new Error('dismissed'), { name: 'AbortError' }));
+      vi.stubGlobal('navigator', { share, canShare: vi.fn(() => true), clipboard: { writeText } });
+
+      render(<QrCodeCard creator={creator} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Share' }));
+
+      await waitFor(() => expect(share).toHaveBeenCalledOnce());
+      expect(writeText).not.toHaveBeenCalled();
+      expect(notify.error).not.toHaveBeenCalled();
+    });
+
+    it('falls back to copying the link when sharing fails', async () => {
+      const writeText = vi.fn().mockResolvedValue(undefined);
+      const share = vi.fn().mockRejectedValue(Object.assign(new Error('blocked'), { name: 'NotAllowedError' }));
+      vi.stubGlobal('navigator', { share, canShare: vi.fn(() => true), clipboard: { writeText } });
+
+      render(<QrCodeCard creator={creator} />);
+      fireEvent.click(screen.getByRole('button', { name: 'Share' }));
+
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith('https://support-mee.vercel.app/alice'));
+    });
   });
 });
