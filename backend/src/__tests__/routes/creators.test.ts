@@ -336,6 +336,74 @@ describe("PUT /api/creators/:username", () => {
   });
 });
 
+describe("PATCH /api/creators/:username/theme (#227)", () => {
+  const token = generateToken(1, "GUSERADDRESS");
+  const theme = { backgroundColor: "#fdfcf7", accentColor: "#7c3aed", font: "serif", layout: "compact" };
+
+  const patchTheme = (body: object) =>
+    request(app).patch("/api/creators/bob/theme").set("Authorization", `Bearer ${token}`).send(body);
+
+  it("rejects requests without an auth token", async () => {
+    const res = await request(app).patch("/api/creators/bob/theme").send({ theme });
+    expect(res.status).toBe(401);
+  });
+
+  it("returns 404 when the creator does not exist", async () => {
+    mockedPrisma.creator.findUnique.mockResolvedValue(null);
+
+    const res = await patchTheme({ theme });
+
+    expect(res.status).toBe(404);
+  });
+
+  it("rejects editing another creator's theme", async () => {
+    mockedPrisma.creator.findUnique.mockResolvedValue({ id: 9, userId: 2, username: "bob" });
+
+    const res = await patchTheme({ theme });
+
+    expect(res.status).toBe(401);
+    expect(mockedPrisma.creator.update).not.toHaveBeenCalled();
+  });
+
+  it("saves a valid theme for the owner", async () => {
+    mockedPrisma.creator.findUnique.mockResolvedValue({ id: 1, userId: 1, username: "bob" });
+    mockedPrisma.creator.update.mockResolvedValue({ id: 1, username: "bob", theme });
+
+    const res = await patchTheme({ theme });
+
+    expect(res.status).toBe(200);
+    expect(res.body.theme).toEqual(theme);
+    expect(mockedPrisma.creator.update).toHaveBeenCalledWith({ where: { username: "bob" }, data: { theme } });
+  });
+
+  it("resets to the default design when theme is null", async () => {
+    mockedPrisma.creator.findUnique.mockResolvedValue({ id: 1, userId: 1, username: "bob" });
+    mockedPrisma.creator.update.mockResolvedValue({ id: 1, username: "bob", theme: null });
+
+    const res = await patchTheme({ theme: null });
+
+    expect(res.status).toBe(200);
+    expect(mockedPrisma.creator.update).toHaveBeenCalledWith({
+      where: { username: "bob" },
+      data: { theme: Prisma.DbNull },
+    });
+  });
+
+  it.each([
+    ["a malformed color", { ...theme, accentColor: "purple" }],
+    ["a font outside the curated list", { ...theme, font: "comic-sans" }],
+    ["an unknown layout", { ...theme, layout: "grid" }],
+    ["a background too mid-toned for either text color (WCAG AA)", { ...theme, backgroundColor: "#777777" }],
+    ["an accent too light for white button text (WCAG AA)", { ...theme, accentColor: "#ffd84d" }],
+  ])("rejects %s", async (_label, invalidTheme) => {
+    const res = await patchTheme({ theme: invalidTheme });
+
+    expect(res.status).toBe(400);
+    expect(res.body.code).toBe("VALIDATION_ERROR");
+    expect(mockedPrisma.creator.update).not.toHaveBeenCalled();
+  });
+});
+
 describe("GET /api/creators/leaderboard (#16)", () => {
   beforeEach(() => {
     // Each test uses its own type/currency combo except the caching test,

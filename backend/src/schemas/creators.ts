@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { assetCode, stellarAddress } from "./common";
+import { contrastRatio, WCAG_AA_TEXT } from "../lib/contrast";
 
 export const usernameParamSchema = z.object({
   username: z.string().min(1, "username is required"),
@@ -60,4 +61,34 @@ export const updateCreatorSchema = z.object({
   // empty array explicitly clears a creator's customization, falling back
   // to the frontend's hardcoded defaults.
   presetAmounts: z.array(z.number().positive()).max(6).optional(),
+});
+
+// Custom profile theme (#227). The profile renders text in whichever of the
+// design system's two ink colors (light-mode near-black, dark-mode off-white)
+// contrasts better with the chosen background, and primary buttons as white
+// text on the accent — so those are the pairs that must meet WCAG AA.
+const hexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, "Must be a hex color like #7c3aed");
+const INK_COLORS = ["#0a0a0a", "#f4f2ec"];
+const BUTTON_TEXT_COLOR = "#ffffff";
+
+export const themeSchema = z
+  .object({
+    backgroundColor: hexColor,
+    accentColor: hexColor,
+    font: z.enum(["default", "serif", "mono", "system"]),
+    layout: z.enum(["default", "compact", "centered"]),
+  })
+  .refine(
+    ({ backgroundColor }) =>
+      Math.max(...INK_COLORS.map((ink) => contrastRatio(backgroundColor, ink))) >= WCAG_AA_TEXT,
+    { message: "Background color leaves too little contrast for text (WCAG AA)", path: ["backgroundColor"] }
+  )
+  .refine(({ accentColor }) => contrastRatio(accentColor, BUTTON_TEXT_COLOR) >= WCAG_AA_TEXT, {
+    message: "Accent color leaves too little contrast for button text (WCAG AA)",
+    path: ["accentColor"],
+  });
+
+// null resets the profile to the default design.
+export const updateThemeSchema = z.object({
+  theme: themeSchema.nullable(),
 });

@@ -3,6 +3,7 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
 import { useAuth } from '@/context/AuthContext';
 import { API_URL } from '@/lib/api';
+import type { ProfileTheme } from '@/lib/theme';
 
 interface Creator {
   id: number;
@@ -18,6 +19,7 @@ interface Creator {
   acceptsUsdt: boolean;
   presetAmounts?: number[] | null;
   bio?: string | null;
+  theme?: ProfileTheme | null;
 }
 
 interface CreatorContextType {

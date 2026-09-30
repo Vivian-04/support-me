@@ -17,6 +17,7 @@ import { uploadAvatar } from '@/lib/upload';
 import { API_URL } from '@/lib/api';
 import { fetchWithRetry, isNetworkError } from '@/lib/network';
 import { AccountDataSection } from '@/components/AccountDataSection';
+import { ThemeEditor } from '@/components/ThemeEditor';
 
 interface Goal {
   id: number;
@@ -644,6 +645,13 @@ export default function SettingsPage() {
                 </button>
               </div>
             </section>
+
+            <ThemeEditor
+              username={creator.username}
+              displayName={creator.displayName || creator.username}
+              token={token}
+              initialTheme={creator.theme ?? null}
+            />
 
             {/* Social links */}
             <section className="space-y-4 border-t-2 border-ink pt-6">

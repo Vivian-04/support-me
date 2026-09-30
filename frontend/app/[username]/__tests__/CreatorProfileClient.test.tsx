@@ -239,6 +239,41 @@ describe('CreatorProfileClient', () => {
     expect(screen.queryByRole('progressbar')).not.toBeInTheDocument();
   });
 
+  it('applies the creator custom theme as CSS variables and layout classes', async () => {
+    mockFetchSequence({
+      '/api/creators/alice': {
+        ...baseCreator,
+        theme: { backgroundColor: '#101820', accentColor: '#b42318', font: 'serif', layout: 'compact' },
+      },
+      '/api/goals/alice': { items: [] },
+    });
+
+    await renderProfile('alice');
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Alice' })).toBeInTheDocument());
+    const page = screen.getByRole('heading', { name: 'Alice' }).closest<HTMLElement>('.min-h-screen')!;
+    expect(page.style.getPropertyValue('--background')).toBe('#101820');
+    expect(page.style.getPropertyValue('--primary')).toBe('#b42318');
+    // A dark background pins the dark palette so text stays readable.
+    expect(page.style.getPropertyValue('--ink')).toBe('#f4f2ec');
+    expect(page.style.fontFamily).toMatch(/serif$/);
+    expect(page).toHaveClass('py-4');
+  });
+
+  it('keeps the default design untouched when the creator has no theme', async () => {
+    mockFetchSequence({
+      '/api/creators/alice': baseCreator,
+      '/api/goals/alice': { items: [] },
+    });
+
+    await renderProfile('alice');
+
+    await waitFor(() => expect(screen.getByRole('heading', { name: 'Alice' })).toBeInTheDocument());
+    const page = screen.getByRole('heading', { name: 'Alice' }).closest<HTMLElement>('.min-h-screen')!;
+    expect(page).not.toHaveAttribute('style');
+    expect(page).toHaveClass('py-10');
+  });
+
   it('offers USDT in the asset selector once the wallet is connected, when the creator accepts it', async () => {
     mockFetchSequence({
       '/api/creators/alice': { ...baseCreator, acceptsUsdt: true },

@@ -25,6 +25,8 @@
   --accent-bg: #ede9fe;  /* soft violet wash for panels */
   --input-bg: #ffffff;
   --shadow-color: #0a0a0a;
+  /* Runtime so a creator's custom theme (#227) can swap the accent. */
+  --primary: #7c3aed;
 }
 
 .dark {
@@ -46,7 +48,7 @@
   --color-ink: var(--ink);
 
   /* Primary action color. */
-  --color-primary: #7c3aed;      /* violet */
+  --color-primary: var(--primary); /* violet */
   --color-primary-dim: #6d28d9;  /* pressed/hover violet */
 
   /* Flat, saturated brand fills used across cards and badges. */

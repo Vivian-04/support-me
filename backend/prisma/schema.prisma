@@ -113,6 +113,10 @@ model Creator {
   // matters later. Denominated in whatever asset the supporter picks on
   // the donate page, same as Goal.currency — not tied to a single currency.
   presetAmounts Float[]        @default([])
+  // Custom public-profile theme (#227): { backgroundColor, accentColor,
+  // font, layout }, validated by schemas/creators.ts's themeSchema. Null
+  // means the default design, so existing creators are unaffected.
+  theme         Json?
   createdAt     DateTime       @default(now())
   updatedAt     DateTime       @updatedAt
   donations     Donation[]

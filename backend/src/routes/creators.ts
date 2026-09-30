@@ -1,4 +1,5 @@
 import { Router } from "express";
+import { Prisma } from "@prisma/client";
 import prisma from "../prisma";
 import { authMiddleware, AuthRequest } from "../middleware/auth";
 import { asyncHandler } from "../middleware/asyncHandler";
@@ -9,6 +10,7 @@ import {
   leaderboardQuerySchema,
   listCreatorsQuerySchema,
   updateCreatorSchema,
+  updateThemeSchema,
   usernameParamSchema,
 } from "../schemas/creators";
 import { ConflictError, NotFoundError, UnauthorizedError } from "../errors/AppError";
@@ -291,6 +293,38 @@ router.put(
     });
 
     // Invalidate cache when profile is updated
+    creatorProfileCache.clear();
+
+    return res.json(creator);
+  })
+);
+
+// Saves (or, with `theme: null`, resets) the creator's public profile theme.
+router.patch(
+  "/:username/theme",
+  authMiddleware as any,
+  validate({ params: usernameParamSchema, body: updateThemeSchema }),
+  asyncHandler(async (req: AuthRequest, res) => {
+    const { username } = req.params;
+    const { theme } = req.body;
+
+    if (!req.user) {
+      throw new UnauthorizedError("User not authenticated");
+    }
+
+    const existing = await prisma.creator.findUnique({ where: { username } });
+    if (!existing) {
+      throw new NotFoundError("Creator not found");
+    }
+    if (existing.userId !== req.user.id) {
+      throw new UnauthorizedError("You can only edit your own profile");
+    }
+
+    const creator = await prisma.creator.update({
+      where: { username },
+      data: { theme: theme ?? Prisma.DbNull },
+    });
+
     creatorProfileCache.clear();
 
     return res.json(creator);
